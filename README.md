@@ -33,6 +33,69 @@
 
 适用场景：需要同时跑多个 feature/fix 分支、或者想在不打断当前工作的前提下临时切到另一个分支排查问题。
 
+### 3. `python-engineering` —— Python 工程规范
+
+约束 LLM 写 Python 时遵循真正的工程范式，而不是「一个 dict 传到底」的脚本写法。
+
+它强调的规范：
+
+- **类型建模优先**：数据有已知结构就建类型（`@dataclass` / `Pydantic` / `TypedDict` / `Enum`），跨边界的 `Dict[str, Any]` 视为坏味道。
+- **函数单一职责**：一个函数只做一件事，禁巨型函数，用 guard clause 压平嵌套。
+- **完整类型标注**：公共函数全标注，`Any` 是需要理由的逃生口而非默认值。
+- **显式报错**：用具体异常表达失败，禁 `None`/`-1` 哨兵返回、禁 `except: pass`。
+- **不可变 + 纯函数**：默认 `frozen`，把 IO 推到边缘让核心逻辑可测。
+- 附带一份「收尾前自查清单」和 `references/patterns.md` 扩展案例库（错误层级、Protocol、IO 分离、边界解析等）。
+
+适用场景：写任何 Python 代码时自动引导；也适合让它 review / 重构现有 Python。
+
+### 4. `react-engineering` —— React 工程规范
+
+约束 LLM 写 React（含 React + TypeScript）时遵循组件设计范式，而不是写出 300 行的巨型组件。
+
+它强调的规范：
+
+- **组件原子化**：小而单一职责，展示组件 vs 容器组件分离，组件过大立即拆分。
+- **逻辑抽 custom hook**：有状态/副作用逻辑抽成 `useX`，组件体保持声明式。
+- **禁巨型 hook**：hook 也要单一职责，大 hook 拆成可组合的小 hook。
+- **props 精确建模**：接口化、用 discriminated union 表达变体、禁 `any`。
+- **状态最小化**：只存唯一真相源，其余在 render 里派生，别用 `useEffect` 同步。
+- **effect 只做真同步**：只用于对接外部系统，附带 cleanup + 完整依赖数组。
+- 附带「收尾前自查清单」和 `references/patterns.md`（custom hook 抽取、compound component、状态就近、避免 effect 等）。
+
+适用场景：写任何 React 组件 / hook / 前端 UI 时自动引导；也适合 review / 重构现有组件。
+
+### 5. `nodejs-engineering` —— Node.js 工程规范
+
+约束 LLM 写 Node.js(后端 / 服务 / 脚本,TypeScript 优先)时遵循后端工程范式,而不是回调套回调、`process.env` 满天飞、错误被吞的写法。
+
+它强调的规范：
+
+- **异步正确性**(Node 头号 bug 源):`async/await`、禁 floating promise、独立任务用 `Promise.all` 并发、不阻塞事件循环。
+- **分层架构**:controller 只做校验/组装,业务逻辑进 service,数据访问进 repository,禁胖 controller。
+- **边界校验**:请求体 / 参数 / env / 外部响应都是 `unknown`,用 zod 等在边界解析成类型;`as` 强转不算校验。
+- **错误传播**:类型化错误层级 + 集中式错误处理,区分「运行时错误」与「程序 bug」,禁 `catch {}` 吞错。
+- **配置与安全**:env 启动时校验成类型化配置注入,禁散落的 `process.env`;参数化查询、不 `eval` 输入、不硬编码密钥。
+- **资源管理**:连接池、大数据用 stream、优雅关闭;结构化日志而非 `console.log`。
+- 附带「收尾前自查清单」和 `references/patterns.md`(错误中间件、依赖注入、streaming、优雅关闭、配置模块等)。
+
+适用场景：写任何 Node 服务 / API / 脚本时自动引导;也适合 review / 重构现有后端代码。
+
+### 6. `vue3-engineering` —— Vue 3 工程规范
+
+约束 LLM 写 Vue 3(Composition API + `<script setup>` + TypeScript)时遵循组件设计范式,而不是写出 400 行、响应式还悄悄失效的巨型组件。
+
+它强调的规范：
+
+- **组件原子化**:小而单一职责的 SFC,展示组件 vs 容器组件分离,过大立即拆。
+- **逻辑抽 composable**:有状态/副作用逻辑抽成 `useX`,`setup` 保持声明式;禁巨型 composable。
+- **props/emits 精确建模**:`defineProps<T>()` / `defineEmits<T>()`、discriminated union 表达变体、禁 `any`。
+- **响应式正确性**(Vue 头号 bug 源):`ref` vs `reactive`、禁解构 `reactive`/props(丢响应式,用 `toRefs`)、派生值用 `computed` 而非 `watch` 回写。
+- **状态最小化 + 单向数据流**:props 向下、事件向上、禁改 prop,跨组件共享用 Pinia。
+- **watch 只做副作用**:并做清理;`v-for` 用稳定 key、禁 `v-if`+`v-for` 同元素。
+- 附带「收尾前自查清单」和 `references/patterns.md`(composable 抽取、响应式陷阱、`defineModel`、Pinia store 结构等)。
+
+适用场景：写任何 Vue 组件 / composable / 前端 UI 时自动引导;也适合 review / 重构现有组件。
+
 ## 目录结构
 
 ```
@@ -46,10 +109,26 @@ skill/
 │   ├── references/
 │   └── evals/
 │       └── evals.json
-└── use-worktree/
+├── use-worktree/
+│   ├── SKILL.md
+│   └── scripts/
+│       └── worktree_manager.py
+├── python-engineering/
+│   ├── SKILL.md
+│   └── references/
+│       └── patterns.md
+├── react-engineering/
+│   ├── SKILL.md
+│   └── references/
+│       └── patterns.md
+├── nodejs-engineering/
+│   ├── SKILL.md
+│   └── references/
+│       └── patterns.md
+└── vue3-engineering/
     ├── SKILL.md
-    └── scripts/
-        └── worktree_manager.py
+    └── references/
+        └── patterns.md
 ```
 
 ## 安装方式
@@ -73,6 +152,30 @@ cp -R use-worktree ~/.claude/skills/
 
 - `/execute-plan-plus` —— 开始一个新的大型计划执行流程，或恢复已有的 `docs/exec-plan-*/`。
 - `/use-worktree` —— 让 Claude 帮你创建 / 列出 / 删除 worktree。
+- `/python-engineering` —— 让 Claude 按 Python 工程规范写 / 重构 / review 代码。
+- `/react-engineering` —— 让 Claude 按 React 工程规范写 / 重构 / review 组件。
+- `/nodejs-engineering` —— 让 Claude 按 Node.js 工程规范写 / 重构 / review 后端代码。
+- `/vue3-engineering` —— 让 Claude 按 Vue 3 工程规范写 / 重构 / review 组件。
+
+## 让工程规范 skill「每次都生效」
+
+`python-engineering` / `react-engineering` / `nodejs-engineering` / `vue3-engineering` 这类规范 skill，靠 `description` **语义匹配自动触发**——但这是**概率触发**：Claude 随手写点代码时，不一定每次都主动加载 skill。
+
+如果你希望它在某个项目里**每次写代码都遵循**，在那个项目根目录的 `CLAUDE.md` 里加一小段常驻指针（这段是给用 skill 的项目用的，不是放在本仓库）：
+
+```markdown
+## 工程规范
+
+- 写 / 重构 **Python** 时，遵循 `python-engineering` skill：类型建模优先、函数单一职责、完整类型标注、显式报错。
+- 写 / 重构 **React** 时，遵循 `react-engineering` skill：组件原子化、逻辑抽 custom hook、禁巨型 hook/组件、状态最小化。
+- 写 / 重构 **Node.js** 后端时，遵循 `nodejs-engineering` skill：异步正确性、分层架构、边界校验、错误传播、配置与安全。
+- 写 / 重构 **Vue 3** 时，遵循 `vue3-engineering` skill：组件原子化、逻辑抽 composable、响应式正确性(禁解构丢响应式)、单向数据流。
+- 发现函数 / 组件变大，或出现裸 dict / any、floating promise、prop 被直接修改，立即按对应 skill 拆分、建类型、修正。
+```
+
+这样 `CLAUDE.md` 常驻上下文里**必然被看到**，负责「提醒去用 skill」；skill 本身承载「具体怎么写」的详细规则和正反例。两者配合，才能既可靠触发、又不把上下文塞爆。
+
+> 想要**硬约束**（格式 / 复杂度 / 依赖必然被拦）而不只是引导，需要额外配 `PostToolUse` hook 跑 linter（ruff / mypy / eslint）。本仓库当前只提供 skill 引导层，未包含 hook。
 
 ## License
 

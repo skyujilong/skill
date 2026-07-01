@@ -129,8 +129,38 @@ This skill helps manage git worktrees for parallel development across multiple b
    python3 scripts/worktree_manager.py delete {worktree-path}
    ```
    - If user confirmed force delete (with uncommitted changes): add `--force` flag
+   - The returned JSON includes a `branch` field (the branch that worktree had
+     checked out), unless it was detached HEAD. Remember it for the next step.
 
-4. **Cleanup confirmation**:
+4. **Offer to delete the branch too (USE `AskUserQuestion`)**:
+
+   Removing a worktree leaves its branch behind. To save the user a second
+   manual step, after a **successful** deletion — and only if the `delete`
+   output returned a `branch` — ask via the **`AskUserQuestion` tool**:
+
+   > "Worktree deleted. Also delete the branch `{branch}`?"
+   > options: **Yes, delete the branch** / **No, keep it**
+
+   - **Skip this question entirely** if: deletion failed, there was no `branch`
+     in the output (detached HEAD), or the branch equals the main branch.
+   - **If the user chose Yes**, delete it (safe mode — refuses unmerged):
+     ```bash
+     python3 scripts/worktree_manager.py delete-branch {branch}
+     ```
+     - On `success: true` → report the branch is gone.
+     - On `success: false` with a "not fully merged" error → the branch has
+       **unmerged commits**. Surface git's exact message and **ask again** with
+       `AskUserQuestion` whether to force-delete (this discards those commits):
+       > "Branch `{branch}` is not fully merged — force delete and discard its commits?"
+       > options: **No, keep it (recommended)** / **Yes, force delete**
+
+       Only on an explicit Yes, run `delete-branch {branch} --force`.
+     - On any other error (e.g. still checked out in another worktree): show the
+       message; do not force.
+   - **If the user chose No**: leave the branch; optionally remind them they can
+     delete it later with `delete-branch {branch}`.
+
+5. **Cleanup confirmation**:
    - Script automatically runs `git worktree prune`
    - Verify deletion with: `python3 scripts/worktree_manager.py list`
 
@@ -163,6 +193,7 @@ This skill helps manage git worktrees for parallel development across multiple b
 | List worktrees | `python3 scripts/worktree_manager.py list` |
 | Create worktree | `python3 scripts/worktree_manager.py create <branch-name>` |
 | Delete worktree | `python3 scripts/worktree_manager.py delete <worktree-path>` |
+| Delete a branch | `python3 scripts/worktree_manager.py delete-branch <branch> [--force]` |
 | Check worktree status | `python3 scripts/worktree_manager.py check <worktree-path>` |
 | Install dependencies | `python3 scripts/worktree_manager.py install-deps <worktree-path>` |
 

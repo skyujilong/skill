@@ -253,6 +253,30 @@ def install_dependencies(path):
     return messages
 
 
+def get_main_branch(cwd=None):
+    """Best-effort detect the repo's main branch, using only local refs (no network).
+
+    Order of preference:
+      1. origin's default branch via the locally-recorded symbolic ref
+         (refs/remotes/origin/HEAD -> e.g. 'origin/main').
+      2. A conventional branch name that actually exists locally.
+      3. 'main' as a last-resort default.
+
+    Avoids `git remote show origin`, which hits the network (slow, fails offline)
+    and whose exit code is masked when used in a shell pipe.
+    """
+    result = run_git(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], cwd=cwd)
+    if result.returncode == 0 and result.stdout.strip():
+        ref = result.stdout.strip()  # e.g. 'origin/main'
+        return ref.split('/', 1)[1] if '/' in ref else ref
+
+    for name in ('main', 'master'):
+        if run_git(['show-ref', '--verify', '--quiet', f'refs/heads/{name}'], cwd=cwd).returncode == 0:
+            return name
+
+    return 'main'
+
+
 def check_worktree(path):
     """Check worktree status: dirty files and merge status."""
     if not os.path.exists(path):
@@ -266,14 +290,18 @@ def check_worktree(path):
     branch_result = run_git(['-C', path, 'rev-parse', '--abbrev-ref', 'HEAD'])
     branch = branch_result.stdout.strip()
 
-    # Get main branch (use 'git remote show origin' via shell for grep)
-    main_result = run_cmd("git remote show origin | grep 'HEAD branch' | cut -d: -f2 | tr -d ' '")
-    main_branch = main_result.stdout.strip() if main_result.returncode == 0 else 'main'
+    # Get main branch (local detection only — no network round-trip)
+    main_branch = get_main_branch(cwd=path)
 
-    # Check if merged (run git branch -a to include remote tracking then filter)
+    # Check if merged. Use --format to get clean branch names: the default output
+    # prefixes each line with a marker ('* ' current, '+ ' checked out in another
+    # worktree) that would otherwise be baked into the branch name and break the
+    # membership test. The branch being deleted is itself checked out in its own
+    # worktree, so it ALWAYS shows up with a '+' prefix here — parsing it as
+    # '+ my-branch' made is_merged spuriously False for every merged worktree.
     # Note: git branch only shows local branches; include main branch explicitly as it's always merged
-    merged_result = run_git(['branch', '--merged', main_branch])
-    branches_merged = [l.strip().replace('* ', '') for l in merged_result.stdout.split('\n') if l.strip()]
+    merged_result = run_git(['-C', path, 'branch', '--merged', main_branch, '--format=%(refname:short)'])
+    branches_merged = [l.strip() for l in merged_result.stdout.split('\n') if l.strip()]
     is_merged = branch in branches_merged or branch == main_branch
 
     return {
@@ -345,15 +373,65 @@ def delete_worktree(path, force=False):
     return False, stderr
 
 
+def get_worktree_branch(path):
+    """Return the branch checked out in the worktree at `path`.
+
+    Returns None if the path doesn't exist, is detached HEAD, or git fails —
+    i.e. there is no safe branch name to offer for deletion.
+    """
+    if not os.path.exists(path):
+        return None
+    result = run_git(['-C', path, 'rev-parse', '--abbrev-ref', 'HEAD'])
+    branch = result.stdout.strip()
+    if result.returncode != 0 or not branch or branch == 'HEAD':
+        return None
+    return branch
+
+
+def delete_branch(branch_name, force=False):
+    """Delete a local branch.
+
+    Uses `git branch -d` (safe: refuses to delete a branch not fully merged, and
+    refuses a branch still checked out in another worktree). With force=True uses
+    `-D`, which discards unmerged commits — callers MUST confirm with the user
+    first. Never deletes the repo's main branch.
+
+    Returns (success: bool, message: str).
+    """
+    if not branch_name:
+        return False, "No branch name provided"
+    if branch_name == get_main_branch():
+        return False, f"Refusing to delete the main branch: {branch_name}"
+
+    flag = '-D' if force else '-d'
+    result = run_git(['branch', flag, branch_name])
+    if result.returncode == 0:
+        return True, result.stdout.strip() or f"Deleted branch: {branch_name}"
+
+    # A worktree whose directory was removed manually (not via this script) leaves
+    # stale metadata in .git/worktrees/, and git then refuses to delete the branch
+    # with "checked out at <gone-path>". Prune the stale entry and retry once.
+    stderr = result.stderr.strip()
+    if 'checked out at' in stderr:
+        run_git(['worktree', 'prune'])
+        retry = run_git(['branch', flag, branch_name])
+        if retry.returncode == 0:
+            return True, retry.stdout.strip() or f"Deleted branch: {branch_name}"
+        return False, retry.stderr.strip()
+
+    return False, stderr
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: worktree_manager.py <command> [args]")
         print("Commands:")
-        print("  list                     - List all worktrees")
-        print("  create <branch>          - Create worktree for branch")
-        print("  delete <path> [--force] - Delete worktree")
-        print("  check <path>            - Check worktree status")
-        print("  install-deps <path>     - Install dependencies (uv + pnpm)")
+        print("  list                          - List all worktrees")
+        print("  create <branch>               - Create worktree for branch")
+        print("  delete <path> [--force]       - Delete worktree (returns its branch)")
+        print("  delete-branch <branch> [--force] - Delete a local branch (-d, or -D with --force)")
+        print("  check <path>                  - Check worktree status")
+        print("  install-deps <path>           - Install dependencies (uv + pnpm)")
         sys.exit(1)
 
     command = sys.argv[1]
@@ -379,7 +457,21 @@ def main():
             sys.exit(1)
         path = sys.argv[2]
         force = len(sys.argv) > 3 and sys.argv[3] == '--force'
+        # Capture the branch BEFORE removal so the caller can offer to delete it too.
+        branch = get_worktree_branch(path)
         success, msg = delete_worktree(path, force)
+        result = {'success': success, 'message': msg}
+        if branch:
+            result['branch'] = branch
+        print(json.dumps(result))
+
+    elif command == 'delete-branch':
+        if len(sys.argv) < 3:
+            print("Error: Branch name required", file=sys.stderr)
+            sys.exit(1)
+        branch = sys.argv[2]
+        force = len(sys.argv) > 3 and sys.argv[3] == '--force'
+        success, msg = delete_branch(branch, force)
         print(json.dumps({'success': success, 'message': msg}))
 
     elif command == 'check':
