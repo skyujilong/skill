@@ -1,0 +1,23 @@
+{
+  "skill_name": "execute-plan-plus",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我有一个很大的实现计划，要一次性执行会导致上下文压缩。请用 execute plan plus 的方式拆成可执行的小计划：给 Next.js 项目增加用户登录、数据库用户表、JWT session、登录页面、登出按钮、API 鉴权中间件和测试。注意我想要小型 superpower，不要生成过多模板。拆完以后先检查有没有漏掉主体 plan 的需求，再开始执行。",
+      "expected_output": "Creates docs/exec-plan timestamp folder with original-plan.md, concise step.json for all steps, split-audit.md coverage map, checkpoint.json, and detailed markdown only for the next 3-step window. Uses build order and includes current-step verification for each expanded mini-plan without heavy boilerplate.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "继续执行 docs/exec-plan-2026-06-14_10-30-00 里的大型计划。请读取必要的恢复上下文，从没有 complate 的步骤继续。更新 step.json 时不要手写 JSON，请用脚本更新状态；每个小计划执行完都要立刻跑当前步骤的验证，三个完成后提醒我 compact。",
+      "expected_output": "Reads original-plan.md, README.md, split-audit.md, checkpoint.json, step.json, and the first non-complate mini-plan. Uses update_step_state.py for legal runing/complate transitions, runs immediate current-step verification, records notes, tracks checkpoint metadata, and avoids duplicate compact prompts for the same checkpoint.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "把这个后端重构 plan 分布执行：先整理配置，再改数据库 migration，再实现 repository/service，再接 controller，最后补测试。请不要先写业务逻辑，我担心顺序错了和上下文不够。拆分出来后你要对比原 plan，确认没有拆错或遗漏，并且每一步都有自己的验证逻辑。",
+      "expected_output": "Persists original-plan.md, creates an ordered step index by build dependencies, audits original requirements against steps, expands only the current window using a slim Goal/Depends/Do/Verify/Notes format, and includes per-step verification while avoiding verbose repeated repair-policy boilerplate.",
+      "files": []
+    }
+  ]
+}
