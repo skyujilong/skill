@@ -10,13 +10,6 @@ Usage:
   python3 worktree_manager.py install-deps <worktree-path>
 """
 
-import
-  python worktree_manager.py list
-  python worktree_manager.py create <branch-name>
-  python worktree_manager.py delete <worktree-path>
-  python worktree_manager.py check <worktree-path>
-"""
-
 import os
 import sys
 import json
