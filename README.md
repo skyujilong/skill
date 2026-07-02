@@ -19,7 +19,23 @@
 
 适用场景：跨天/跨多次会话推进一个大重构、大迁移、多阶段落地时。
 
-### 2. `use-worktree` —— Git Worktree 并行开发管理
+### 2. `orchestrate-plan` —— Plan 的自主编排执行 loop
+
+用于把一份**已批准的 plan** 交给「主 agent 只派发、子 agent 干活」的自主 loop 执行，全程尽量少人工介入，但代码质量闸门一个不少。
+
+它做的事情：
+
+- **主 agent 只当调度员**：派发任务、收结构化回报、更新状态、出报告——**从不亲自写代码、也不亲自跑验收**。
+- 执行前先派子 agent **LLM 自审 plan**（可行性 / 覆盖度 / 拆分顺序）；审出致命问题才上报请示，否则自动继续。
+- 每一步交**独立执行子 agent**实现（按文件类型加载对应 `*-engineering` 规范），再交**独立验收子 agent**跑 typecheck / 测试 / lint。
+- 验收失败就派修复子 agent 修、再验收，**最多 3 轮**；3 轮还不过 → 判定「规划这条路走不通」→ 立即停掉整个流程并出**详细中止报告**。
+- 全部通过后，再派**整体 review 子 agent** + **codebase 图谱验证子 agent**（用 codebase-memory 校验调用链 / 契约 / 死代码 / 架构）。
+- 状态存在 `docs/orchestrate-plan-<时间戳>/`，**每次调用一个独立目录、绝不覆盖**；支持中断后 `list` → 选中 → 从未完成步骤**恢复续跑**（不重置 3 轮预算）。
+- 状态经 `scripts/run_state.py`（`init` / `list` / `status` / `update`）修改，原子写 + 转移合法 + 前序未完成不许开工。
+
+适用场景：需求已梳理成 plan、想让 Claude 自主分步执行并保证质量时。它与 `execute-plan-plus` 互补——后者是单 agent 抗 `/compact` 的串行执行器，前者是多 agent 编排 + 独立验收 + 失败中止 + 整体 review。
+
+### 3. `use-worktree` —— Git Worktree 并行开发管理
 
 用于快速创建/列出/删除 git worktree，让你可以在多个分支上**同时并行开发**而无需来回切换分支。
 
@@ -33,7 +49,7 @@
 
 适用场景：需要同时跑多个 feature/fix 分支、或者想在不打断当前工作的前提下临时切到另一个分支排查问题。
 
-### 3. `python-engineering` —— Python 工程规范
+### 4. `python-engineering` —— Python 工程规范
 
 约束 LLM 写 Python 时遵循真正的工程范式，而不是「一个 dict 传到底」的脚本写法。
 
@@ -48,7 +64,7 @@
 
 适用场景：写任何 Python 代码时自动引导；也适合让它 review / 重构现有 Python。
 
-### 4. `react-engineering` —— React 工程规范
+### 5. `react-engineering` —— React 工程规范
 
 约束 LLM 写 React（含 React + TypeScript）时遵循组件设计范式，而不是写出 300 行的巨型组件。
 
@@ -64,7 +80,7 @@
 
 适用场景：写任何 React 组件 / hook / 前端 UI 时自动引导；也适合 review / 重构现有组件。
 
-### 5. `nodejs-engineering` —— Node.js 工程规范
+### 6. `nodejs-engineering` —— Node.js 工程规范
 
 约束 LLM 写 Node.js(后端 / 服务 / 脚本,TypeScript 优先)时遵循后端工程范式,而不是回调套回调、`process.env` 满天飞、错误被吞的写法。
 
@@ -80,7 +96,7 @@
 
 适用场景：写任何 Node 服务 / API / 脚本时自动引导;也适合 review / 重构现有后端代码。
 
-### 6. `vue3-engineering` —— Vue 3 工程规范
+### 7. `vue3-engineering` —— Vue 3 工程规范
 
 约束 LLM 写 Vue 3(Composition API + `<script setup>` + TypeScript)时遵循组件设计范式,而不是写出 400 行、响应式还悄悄失效的巨型组件。
 
@@ -107,6 +123,14 @@ skill/
 │   ├── scripts/
 │   │   └── update_step_state.py
 │   ├── references/
+│   └── evals/
+│       └── evals.json
+├── orchestrate-plan/
+│   ├── SKILL.md
+│   ├── scripts/
+│   │   └── run_state.py
+│   ├── references/
+│   │   └── dispatch-prompts.md
 │   └── evals/
 │       └── evals.json
 ├── use-worktree/
@@ -141,16 +165,18 @@ skill/
 # 把整个 skill 目录 copy 到 Claude Code 的用户级 skills 目录下
 mkdir -p ~/.claude/skills
 cp -R execute-plan-plus ~/.claude/skills/
+cp -R orchestrate-plan ~/.claude/skills/
 cp -R use-worktree ~/.claude/skills/
 ```
 
-安装完之后重启 Claude Code（或者开一个新会话）即可看到这两个 skill。
+安装完之后重启 Claude Code（或者开一个新会话）即可看到这些 skill。
 
 ## 使用方式
 
 安装后，Claude Code 会根据 SKILL.md 中的 `description` 自动决定何时触发；你也可以显式调用：
 
 - `/execute-plan-plus` —— 开始一个新的大型计划执行流程，或恢复已有的 `docs/exec-plan-*/`。
+- `/orchestrate-plan` —— 把一份已批准的 plan 交给自主编排 loop 执行（主 agent 只派发、子 agent 执行+验收、失败中止出报告、最后整体 review + codebase 验证），或恢复已有的 `docs/orchestrate-plan-*/`。
 - `/use-worktree` —— 让 Claude 帮你创建 / 列出 / 删除 worktree。
 - `/python-engineering` —— 让 Claude 按 Python 工程规范写 / 重构 / review 代码。
 - `/react-engineering` —— 让 Claude 按 React 工程规范写 / 重构 / review 组件。

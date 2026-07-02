@@ -1,0 +1,23 @@
+{
+  "skill_name": "orchestrate-plan",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我已经有一份批准过的 plan 了，帮我按 orchestrate-plan 的方式自动执行：主 agent 只负责派发，别自己写代码；每一步交给独立的子 agent 执行，验收也要单独的 agent 跑 typecheck / 测试；每步写代码时按对应的工程规范来。全部跑完之后整体 review 一遍，再根据我的 codebase 验证代码有没有真正接进去。",
+      "expected_output": "Runs run_state.py init to create a fresh docs/orchestrate-plan-<timestamp>/ (never overwriting), saves original-plan.md verbatim, writes an ordered step.json plus split-audit.md, and dispatches a plan-review sub-agent before executing. For each step: sets running via the script, dispatches an independent executor sub-agent (which loads the matching *-engineering skill) and a SEPARATE verifier sub-agent for typecheck/tests, and the main agent itself writes no code and runs no checks. After all steps are complete, dispatches an overall-review sub-agent and a codebase-memory graph validation sub-agent, then consolidates run-report.md. No per-step human confirmation or /compact pauses.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "接着 docs/orchestrate-plan-2026-07-01_09-00-00 那次继续跑，别新建目录。上次好像在某一步中间断了，帮我从没完成的步骤接着执行。",
+      "expected_output": "Enters resume mode without calling init and without creating a new directory. Uses run_state.py list / status to locate the run and its first non-complete step, reads original-plan.md, run-report.md, split-audit.md, step.json, and that step's mini-plan. If the step is pending, dispatches it normally; if it is running (interrupted mid-step), reads the attempt=N/3 count from the mini-plan Notes, dispatches a verifier first to learn the real current state, then continues the fix/verify loop from that attempt WITHOUT resetting the 3-round budget; if it is failed, presents the historical abort report and stops. All script calls use the explicit run_dir path.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "执行这个 plan，但我担心有的步骤修不好。规则是：每步验收失败就派子 agent 修，最多 3 轮；要是 3 轮还过不了，就说明规划这条路可能走不通，别硬撑，直接停掉整个流程给我一份详细报告。另外执行前先让 LLM 审一遍 plan 本身。",
+      "expected_output": "Before executing, dispatches a plan-review sub-agent; on a fatal verdict it stops and escalates to the user instead of executing. During execution, on a verifier failure it runs a bounded fix/verify loop capped at 3 rounds (fixer sub-agent then verifier sub-agent each round), appending each attempt and the verifier output to the mini-plan Notes as attempt=N/3. If a step still fails after round 3, it sets that step to failed via run_state.py update, stops dispatching all remaining steps, and writes run-report.md as an abort report covering which step failed, what each of the 3 rounds tried, the exact verifier errors, a hypothesis for why the PLAN (not just the code) is at fault, and recommended plan revisions.",
+      "files": []
+    }
+  ]
+}
