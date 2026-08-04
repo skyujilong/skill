@@ -112,6 +112,22 @@
 
 适用场景：写任何 Vue 组件 / composable / 前端 UI 时自动引导;也适合 review / 重构现有组件。
 
+### 8. `req-align` —— 模糊需求的工程化对齐
+
+用于把一句话 / 模糊需求，在动手前对齐成结构化产物，沉淀工程约束来规避返工，并把架构决策沉淀成可被后续阶段回查的历史索引。
+
+它做的事情：
+
+- **定位需求所在层**：需求层 / SDD 层 / 架构层 / 执行层——只有需求层才做对齐，其他层转交对应 skill。
+- **历史架构决策扫描**：澄清前先扫 `docs/req-align-history/index.md`，用关键词做简单包含匹配；命中才用 `AskUserQuestion` 问用户是否参考对应 per-run 目录的完整决策，把已决议边界当作既有上下文带入本次对齐——避免重新踩同一个坑或无声推翻既有决策。
+- **最少澄清**：只问最高价值的 1-3 个问题（交付物 / 关键不变量 / 已知边界）。
+- **对齐六要素**：目标、范围（✅ 支持 / ⛔ 暂不支持，显式边界必填）、优先级、**可观察的验收标准**（禁"要好 / 稳定 / 正常"这类不可观察词）、架构边界风险、下一阶段判定。
+- **架构边界扫描**：数据流 / 时序事件流 / 跨服务调用 / 领域模型 / 外部 API 契约——只标记风险与建议验证阶段，未命中的边界也要写一行"未命中"证明扫过；命中历史决议的直接引用而非重判，要覆盖必须写理由。规避"需求正确、代码正确、但架构边界错误"的返工。
+- **落盘为 per-run 目录**（与 `docs/exec-plan-*/` 同构）：`docs/req-align-<yyyy-mm-dd>-<slug>/` 下三份文件——`align.md`（六要素对齐）、`arch-risk.md`（边界扫描表 + append-only 决议记录，由后续阶段回填）、`acceptance.md`（`- [ ]` 人工验收勾选清单，首次落盘全未勾选是正常状态）。同时追加一行摘要到 `docs/req-align-history/index.md`（文件不存在则连表头一起创建）。**目录已存在时绝不覆盖**，改用 `-2`、`-3` 递增后缀。
+- **产物自检**：`python3 scripts/check_alignment.py docs/req-align-<yyyy-mm-dd>-<slug>/` 校验三文件齐全性、六要素完整性、验收可观察性、checkbox 格式；退出码 `0` 全过 / `1` 有缺陷 / `2` 路径错误。脚本不校验 checkbox 是否已勾选、也不要求决议记录非空——那是后续阶段的事。
+
+适用场景：拿到模糊 / 一句话需求、需求缺边界或验收标准、需求触碰系统边界（事件流 / SSE / 多 Agent / 外部 API 契约）需要在写代码前先识别风险、需要沉淀架构决策以防后期漂移、需要一份执行完成后可人工核对的验收清单时。
+
 ## 目录结构
 
 ```
@@ -137,6 +153,15 @@ skill/
 │   ├── SKILL.md
 │   └── scripts/
 │       └── worktree_manager.py
+├── req-align/
+│   ├── SKILL.md
+│   ├── agents/
+│   │   └── openai.yaml
+│   ├── scripts/
+│   │   └── check_alignment.py
+│   └── references/
+│       ├── templates.md
+│       └── risk-patterns.md
 ├── python-engineering/
 │   ├── SKILL.md
 │   └── references/
@@ -182,6 +207,7 @@ cp -R use-worktree ~/.claude/skills/
 - `/react-engineering` —— 让 Claude 按 React 工程规范写 / 重构 / review 组件。
 - `/nodejs-engineering` —— 让 Claude 按 Node.js 工程规范写 / 重构 / review 后端代码。
 - `/vue3-engineering` —— 让 Claude 按 Vue 3 工程规范写 / 重构 / review 组件。
+- `/req-align` —— 把模糊需求工程化对齐成目标 / 边界 / 验收标准 / 架构风险，先扫历史架构决策索引，落盘为 `docs/req-align-<date>-<slug>/`（align.md + arch-risk.md + acceptance.md）+ 历史索引，并判定下一阶段。
 
 ## 让工程规范 skill「每次都生效」
 

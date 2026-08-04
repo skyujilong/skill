@@ -1,0 +1,4 @@
+interface:
+  display_name: "需求对齐器"
+  short_description: "把模糊需求对齐成目标、边界、验收标准与架构风险的工程化流程"
+  default_prompt: "我有一个模糊需求，帮我对齐它"
