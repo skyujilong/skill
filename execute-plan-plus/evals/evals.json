@@ -18,6 +18,12 @@
       "prompt": "把这个后端重构 plan 分布执行：先整理配置，再改数据库 migration，再实现 repository/service，再接 controller，最后补测试。请不要先写业务逻辑，我担心顺序错了和上下文不够。拆分出来后你要对比原 plan，确认没有拆错或遗漏，并且每一步都有自己的验证逻辑。",
       "expected_output": "Persists original-plan.md, creates an ordered step index by build dependencies, audits original requirements against steps, expands only the current window using a slim Goal/Depends/Do/Verify/Notes format, and includes per-step verification while avoiding verbose repeated repair-policy boilerplate.",
       "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "执行 docs/exec-plan 里的计划时，05-service 连续 3 次验证失败，同时实现中发现 UI mock 必须先于 API 完成（依赖顺序调整）。请按 execute-plan-plus 的失败策略处理，并把技术决策记录下来。",
+      "expected_output": "Extracts requirements into requirements.md, tracks the failure count in the mini-plan Notes, stops patching after 3 consecutive verification failures, marks the step blocked via update_step_state.py block --reason (blocked: true + block_reason, state stays runing), updates README to wait for a human decision, asks the user to choose rollback / re-scope / manual fix, then unblocks after the decision. For the dependency reorder, uses update_step_state.py --force --reason, records override_reason in step.json, and logs the technical decision in decisions.md.",
+      "files": []
     }
   ]
 }

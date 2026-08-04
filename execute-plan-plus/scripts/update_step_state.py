@@ -4,8 +4,15 @@
 Usage:
   python3 scripts/update_step_state.py <step.json> <step> runing
   python3 scripts/update_step_state.py <step.json> <step> complate
+  python3 scripts/update_step_state.py <step.json> <step> runing --force --reason "TEXT"
+  python3 scripts/update_step_state.py <step.json> <step> block --reason "TEXT"
+  python3 scripts/update_step_state.py <step.json> <step> unblock
 
 The intentionally misspelled states match the execute-plan-plus contract.
+--force overrides legal-transition and previous-step-order checks; it requires
+a non-empty --reason, which is recorded on the step entry as override_reason.
+block/unblock manage the structured failure fields (blocked, block_reason)
+without touching the legal state; block requires a non-empty --reason.
 """
 
 from __future__ import annotations
@@ -58,6 +65,10 @@ def validate_steps(data: list[dict[str, Any]]) -> None:
             fail(f"entry {index} state must be a string")
         if item["state"] not in VALID_STATES:
             fail(f"entry {index} has invalid state: {item['state']}")
+        if "blocked" in item and not isinstance(item["blocked"], bool):
+            fail(f"entry {index} blocked must be a boolean")
+        if "block_reason" in item and not isinstance(item["block_reason"], str):
+            fail(f"entry {index} block_reason must be a string")
         if item["step"] in seen:
             fail(f"duplicate step name found: {item['step']}")
         seen.add(item["step"])
@@ -88,15 +99,40 @@ def atomic_write_json(path: Path, data: list[dict[str, Any]]) -> None:
             fail(f"cannot write {path}: {exc}")
 
 
+def parse_args(argv: list[str]) -> tuple[str, str, str, bool, str | None]:
+    force = False
+    reason: str | None = None
+    positionals: list[str] = []
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--force":
+            force = True
+        elif arg == "--reason":
+            index += 1
+            if index >= len(argv):
+                fail("--reason requires a value")
+            reason = argv[index]
+        elif arg.startswith("--"):
+            fail(f"unknown option: {arg}")
+        else:
+            positionals.append(arg)
+        index += 1
+
+    if len(positionals) != 3:
+        fail(
+            "usage: update_step_state.py <step.json> <step> <state> "
+            "[--force --reason TEXT] | <step.json> <step> block --reason TEXT "
+            "| <step.json> <step> unblock"
+        )
+    return positionals[0], positionals[1], positionals[2], force, reason
+
+
 def main() -> None:
-    if len(sys.argv) != 4:
-        fail("usage: update_step_state.py <step.json> <step> <state>")
+    step_json_str, step_name, new_state, force, reason = parse_args(sys.argv[1:])
+    step_json = Path(step_json_str)
 
-    step_json = Path(sys.argv[1])
-    step_name = sys.argv[2]
-    new_state = sys.argv[3]
-
-    if new_state not in VALID_STATES:
+    if new_state not in VALID_STATES and new_state not in ("block", "unblock"):
         fail(f"state must be one of: {', '.join(sorted(VALID_STATES))}")
     if not step_json.exists():
         fail(f"step.json not found: {step_json}")
@@ -117,6 +153,36 @@ def main() -> None:
     old_state = target["state"]
     if old_state == new_state:
         print(f"unchanged {step_name} -> {new_state}")
+        return
+
+    if new_state == "block":
+        if reason is None or not reason.strip():
+            fail("block requires a non-empty --reason")
+        target["blocked"] = True
+        target["block_reason"] = reason
+        atomic_write_json(step_json, data)
+        print(
+            f"blocked {step_name} (state stays {target['state']}; reason: {reason})"
+        )
+        return
+
+    if new_state == "unblock":
+        if "blocked" not in target and "block_reason" not in target:
+            print(f"unchanged {step_name} (not blocked)")
+            return
+        target.pop("blocked", None)
+        target.pop("block_reason", None)
+        atomic_write_json(step_json, data)
+        print(f"unblocked {step_name}")
+        return
+
+    if force:
+        if reason is None or not reason.strip():
+            fail("--force requires a non-empty --reason")
+        target["state"] = new_state
+        target["override_reason"] = reason
+        atomic_write_json(step_json, data)
+        print(f"override {step_name}: {old_state} -> {new_state} (reason: {reason})")
         return
 
     if (old_state, new_state) not in LEGAL_TRANSITIONS:
