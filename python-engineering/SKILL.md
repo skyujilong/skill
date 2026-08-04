@@ -25,6 +25,29 @@ type modeling or shipping a 200-line function.
 
 ---
 
+## Scope and exemptions
+
+Standards scale with how much the code matters:
+
+- **Core business libraries/services** — every standard applies, strictly.
+- **Throwaway scripts / prototypes / glue tools** — stylistic standards (line
+  counts, split granularity, frozen-by-default) may be relaxed. **Blocking
+  standards (`🔴` items in the Smell checklist) are never exempt.**
+
+Exemptions open only `🟡` warning-level items, and the whitelist is closed:
+
+1. One-off script: single file, no tests, imported by nothing else.
+2. Glue layer wrapping an untyped third-party library: can't be fully typed.
+3. Performance-critical path: abstraction has measurable cost.
+
+When you use an exemption, write a line comment at the site stating the reason
+with code-visible evidence (e.g. "third-party lib returns untyped dict, line N").
+Anything not in the whitelist = no exemption. If one change needs 3+ exemptions,
+stop and refactor — a cluster of exemptions means the modeling failed, not that
+the rules are too strict.
+
+---
+
 ## Core Principles
 
 ### 1. Model the domain with types — not bare dicts
@@ -67,6 +90,9 @@ def create_user(new: NewUser) -> User:
 **Rule:** `Dict[str, Any]` (or bare `dict`) in a function signature that crosses
 a module/layer boundary is a code smell. Model it.
 
+**`TypedDict` is static-only:** it does zero runtime validation — never use it
+to "validate" untrusted external input; that is `pydantic.BaseModel`'s job.
+
 ### 2. One function, one job — no giant functions
 
 A function should do one thing at one level of abstraction. If you're scrolling
@@ -75,6 +101,9 @@ to read it, or it has "and" in its honest description, split it.
 - Extract cohesive blocks into named helper functions — the name documents intent.
 - Use **guard clauses** to flatten nesting instead of `if/else` pyramids.
 - Rough ceiling: if a function exceeds ~40 lines or nests deeper than 3 levels, look hard for a seam.
+- Splitting is a means, not a goal: after the split, readability must be
+  *better*. Never fragment into `_helper_a` / `_helper_b` shards just to shrink
+  line counts — a cohesive flat loop may legitimately exceed 40 lines.
 
 ```python
 # ❌ one function doing validation + fetch + transform + IO
@@ -94,6 +123,12 @@ Every public function's parameters and return are annotated. `Any` is an
 explicit escape hatch, not a default — if you reach for it, justify it or model
 the real type. Prefer precise types: `Sequence[T]` over `list` when read-only,
 `X | None` over bare `Optional` returns without handling.
+
+**`Any` whitelist** (exhaustive — anything outside it is a violation):
+- glue code wrapping an untyped third-party library: convert at the typed boundary and stop;
+- FFI / dynamic plugin / reflection boundaries;
+- genuinely heterogeneous containers in generic algorithms (rare).
+A silent `Any` (no justification comment) is always a defect.
 
 ```python
 # ❌
@@ -124,6 +159,13 @@ def get_user(uid: UserId) -> User:
 Never `except Exception: pass`. Catch the narrowest exception you can handle,
 and let the rest propagate.
 
+- Never catch `BaseException` — it swallows `KeyboardInterrupt` / `SystemExit`.
+- Prefer built-in exceptions (`ValueError`, `LookupError`, `TimeoutError`, ...);
+  define a domain exception class only when a caller needs to distinguish it.
+- When wrapping, keep the chain: `raise DomainError(...) from err` — never drop
+  the original traceback. If you catch only to log, re-`raise` afterwards;
+  log-and-return erases the failure.
+
 ### 5. Prefer immutability and purity
 
 - Default to `frozen=True` dataclasses and tuples; mutate only with reason.
@@ -148,14 +190,28 @@ objects over tall inheritance trees.
 
 ## Smell checklist (run before finishing)
 
-- [ ] Any `dict` / `Dict[str, Any]` crossing a boundary that should be a `dataclass`/`Pydantic`/`TypedDict`?
-- [ ] Any magic string/number that should be an `Enum` or named constant?
-- [ ] Any function > ~40 lines or > 3 nesting levels that should be split?
-- [ ] Any public function missing type annotations, or leaning on `Any`?
+Two severities:
+
+- 🔴 **Blocking** — never exempt; fix before declaring done.
+- 🟡 **Warning** — exemptible only per "Scope and exemptions"; every exemption
+  needs a line comment.
+
+🔴 Blocking:
 - [ ] Any failure signalled by `None`/`False`/`-1` instead of a raised exception?
-- [ ] Any `except Exception`/bare `except`, or `except: pass`?
+- [ ] Any `except Exception` / bare `except` / `except: pass`? (never `except BaseException`)
 - [ ] Any mutable default argument?
-- [ ] Is IO tangled into otherwise-pure logic?
+- [ ] Any `dict` / `Dict[str, Any]` crossing a module/layer boundary that isn't modeled as a type?
+- [ ] Any external input (API/config/JSON) consumed without validation at the boundary?
+
+🟡 Warning:
+- [ ] Any magic string/number that should be an `Enum` or named constant?
+- [ ] Any function > ~40 lines or > 3 nesting levels that should be split — only if splitting improves readability?
+- [ ] Any public function missing type annotations, or using a silent `Any` (no justification comment)?
+- [ ] Is IO tangled into otherwise-pure logic (instead of injected dependencies)?
+- [ ] Expensive IO / DB call inside a loop (N+1 query pattern)?
+- [ ] Global mutable state being modified at runtime?
+- [ ] Public API missing a docstring?
+- [ ] A return value silently ignored (e.g. `os.remove`)?
 
 If any box is checked, fix it before declaring done.
 
