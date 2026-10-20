@@ -128,6 +128,31 @@
 
 适用场景：拿到模糊 / 一句话需求、需求缺边界或验收标准、需求触碰系统边界（事件流 / SSE / 多 Agent / 外部 API 契约）需要在写代码前先识别风险、需要沉淀架构决策以防后期漂移、需要一份执行完成后可人工核对的验收清单时。
 
+### 9. `req-align-v2` —— 需求对齐（稳定 ID 契约 + 边界沉淀 + 脚本闭环）
+
+把模糊需求工程化对齐，产出带稳定 ID 的可观察验收标准、架构边界风险、机器契约与边界台账。
+
+- **稳定 ID 硬契约**：验收写成 `- AC-1 (P0) 输入 X → 输出 Y`，风险写成 `RISK-N`，边界决策写成 `BND-N`。下游（SDD / 架构发现 / exec-plan）**只能引用，禁止重新编号**。
+- **机器契约 `handoff.json`**：由 `align_state.py sync` 从三份 Markdown 派生（禁止手写），内含 `source_sha256` 指纹；下游读到契约后还会比对三份源文件原始字节，改了源文件没重跑 `sync` 会被拦下。
+- **模块级边界台账 `boundaries.md`**：以**模块**为主键、一行一条决策、强制单句结论（脚本拒绝 >120 字符）。
+- **双向失效标记**：`boundary_state.py supersede` 一条命令同时改台账两行 + 给旧 run 的 `arch-risk.md` 插失效横幅 + 更新时间线。
+- **项目级踩坑库 `pitfalls.md`**：每条挂在一个 BND 上，同类 `count+1`；下次对齐命中该边界时由 `scan` 自动带出。与个人级 `~/.claude/lessons.md` 分工（后者存跨项目技术教训）。
+- **脚本闭环，禁止手改**：`arch-risk.md` 的状态列、`acceptance.md` 的 checkbox、`boundaries.md` 的任何一行都只能由脚本改。`resolve-risk` 在同一次原子写里改状态列并追加决议段；`close-ac` 可用 `--run-cmd` 让脚本亲自执行验证命令（非零退出拒绝关闭并记录代码版本），也可用 `--manual --observer` 或裸 `--evidence`（自报文本，P0 收尾不予采信）。
+- **两处人工闸门**：台账新增/变更、高危边界命中。闸门结果是写命令的**必填参数**（`--confirmed-by` / `--gate-outcome`），跳过闸门就写不进台账。
+- **收尾门禁**：`check_alignment.py <run_dir> --strict-closure` 要求验收全勾选、P0 证据为脚本执行或人工观察且针对当前代码版本、无 `待验证` 遗留、并有 `record-review` 记录的 final 独立审核。
+- **留存式可观测**：所有脚本在动作末尾追加一行 JSONL 到 `docs/.skill-metrics/runs.jsonl`（隐藏目录，随仓库提交）。**脚本写、LLM 从不读**，所以上下文成本为 0。
+
+### 10. `execute-plan-plus-v2` —— 执行计划（上游摄取 + 每步增量闭环）
+
+大型实现计划的可恢复分步执行。无上游时进入通用模式。
+
+- **目录命名统一**：`docs/exec-plan-<yyyy-mm-dd>-<slug>/`，slug 继承上游。命名合规由 `update_step_state.py` 拒绝，不是散文要求。
+- **Step 0 上游摄取**：扫 `docs/req-align-*/handoff.json`，写 `upstream.json`（`/compact` 后靠它恢复链接）。未命中则进入通用模式，全部上游相关校验自动跳过。
+- **`step.json` 带 `covers`**：每个 step 声明它服务哪些 `AC-N`；`audit_coverage.py` 在执行前强制 100% AC 覆盖，并校验 `requirements.md` 的 `Covers:` 与之一致。
+- **每步增量回写**：`complate` 前置校验该 step 覆盖的 AC 已在上游闭环，否则拒绝并打印应执行的 `close-ac` 命令。
+- **`block` 强制表态**：必须给 `--pitfall PIT-N` 或 `--no-pitfall REASON`。
+- **收尾门禁**：`final_gate.py <plan_dir> --req-align-scripts <dir>` 一键跑步骤完成度、AC 覆盖审计、上游 `--strict-closure` 与历史同步；未过则报「未完成」。
+
 ## 目录结构
 
 ```
@@ -162,6 +187,33 @@ skill/
 │   └── references/
 │       ├── templates.md
 │       └── risk-patterns.md
+├── req-align-v2/
+│   ├── SKILL.md
+│   ├── agents/
+│   │   └── openai.yaml
+│   ├── scripts/
+│   │   ├── _artifacts.py            # 共享解析与原子写（避免正则三处漂移）
+│   │   ├── align_state.py           # run 内写操作唯一入口
+│   │   ├── boundary_state.py        # 跨 run 沉淀：台账 / 踩坑库 / 时间线
+│   │   ├── check_alignment.py       # 自检 + --strict-closure 收尾门禁
+│   │   └── metrics.py               # 留存埋点（脚本写，LLM 不读）
+│   ├── references/
+│   │   ├── templates.md
+│   │   ├── risk-patterns.md
+│   │   └── downstream-contract.md   # 四阶段命名 + 中间层目录规范 + ID 透传
+│   ├── tests/
+│   └── evals/
+│       └── evals.json
+├── execute-plan-plus-v2/
+│   ├── SKILL.md
+│   ├── scripts/
+│   │   ├── update_step_state.py     # + slug 校验 / covers 闭环门禁 / block 表态
+│   │   ├── audit_coverage.py        # 执行前 AC 覆盖门禁
+│   │   ├── final_gate.py            # 一键收尾门禁（步骤/覆盖/严格闭环/历史同步）
+│   │   └── metrics.py
+│   ├── tests/
+│   └── evals/
+│       └── evals.json
 ├── python-engineering/
 │   ├── SKILL.md
 │   └── references/
@@ -207,7 +259,9 @@ cp -R use-worktree ~/.claude/skills/
 - `/react-engineering` —— 让 Claude 按 React 工程规范写 / 重构 / review 组件。
 - `/nodejs-engineering` —— 让 Claude 按 Node.js 工程规范写 / 重构 / review 后端代码。
 - `/vue3-engineering` —— 让 Claude 按 Vue 3 工程规范写 / 重构 / review 组件。
-- `/req-align` —— 把模糊需求工程化对齐成目标 / 边界 / 验收标准 / 架构风险，先扫历史架构决策索引，落盘为 `docs/req-align-<date>-<slug>/`（align.md + arch-risk.md + acceptance.md）+ 历史索引，并判定下一阶段。
+- `/req-align` —— 把模糊需求工程化对齐成目标 / 边界 / 验收标准 / 架构风险，落盘为 `docs/req-align-<date>-<slug>/` + 历史索引，并判定下一阶段。
+- `/req-align-v2` —— 同上，外加稳定 ID（AC-N / RISK-N / BND-N）、机器契约 `handoff.json`、模块级边界台账与踩坑库、脚本强制的闭环回写与双向失效标记、两处人工闸门。
+- `/execute-plan-plus-v2` —— 摄取上游 `handoff.json`，产出目录名继承上游 slug，每个 step 声明 `covers` 并在 `complate` 前把覆盖的验收就地闭环；无上游时进入通用模式。
 
 ## 让工程规范 skill「每次都生效」
 

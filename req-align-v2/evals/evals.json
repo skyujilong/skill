@@ -1,0 +1,42 @@
+{
+  "skill_name": "req-align-v2",
+  "note": "本仓库没有 eval runner，这份文件是行为契约文档，不计入可观测性交付。可观测由 scripts/metrics.py 的 JSONL 留存 + scripts/skill_report.py 承担。",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我想给后台加一个底层服务的全局台账，现在服务是挂在租户下面的。帮我用 req-align v2 对齐这个需求并落盘。",
+      "expected_output": "澄清 1-3 个问题后落盘 docs/req-align-<date>-<slug>/，三份 Markdown 的验收条目带 AC-N (P?) 前缀、arch-risk 扫描表带 RISK-N 与关联边界列且六类边界逐项有行、acceptance.md 的 AC 集合与 align.md 完全一致且首次全部未勾选。用 align_state.py sync 生成 handoff.json 而非手写 JSON，随后跑 boundary_state.py history-sync 与 check_alignment.py 自检通过。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "帮我对齐一个新需求：审批通过时要给用户绑定底层服务。（项目里 docs/req-align-history/boundaries.md 已有 BND-4「审批时填写首次服务配置」处于生效状态，并挂有一条 PIT 踩坑）",
+      "expected_output": "澄清前先跑 boundary_state.py scan --keywords 检索台账，读取命中行与其 pitfalls（不读整份台账文件），把命中的 BND-4 当作既有上下文并在对齐里显式规避该踩坑，align.md 的「沿用的历史决策」写明沿用 BND-4。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "这次的需求要改成：服务先全局配置，再通过审批挂钩租户。这和之前 BND-4 的决策是冲突的。",
+      "expected_output": "识别出这是推翻既有生效边界，先用 AskUserQuestion 列出拟写入的新单句结论、受影响的 BND-4、覆盖理由并等用户确认；确认后用 boundary_state.py supersede BND-4 --by <run> --confirmed-by human --gate-outcome adopted 写入，脚本自动完成台账两行改写、旧 run arch-risk.md 的失效横幅、时间线更新。不手改 boundaries.md，也不只在对话里宣布覆盖。",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "这个需求牵扯 SSE 事件流的顺序，谁负责解包还没定。帮我对齐。",
+      "expected_output": "在 arch-risk.md 把时序/事件流一行标为命中且状态待验证，并用 AskUserQuestion 让用户选验证方式（trace_path / 最小脚本 / 查当前版本官方文档 / 用户直接给结论），不自行决定验证手段。下一阶段判定为「先做架构发现」。",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "docs/req-align-2026-09-02-global-service-catalog 的执行已经做完了，帮我确认验收闭环。",
+      "expected_output": "跑 check_alignment.py <run_dir> --strict-closure；若验收未全勾选或仍有待验证风险则报为未完成并列出缺口，且提示用 align_state.py close-ac --evidence / resolve-risk 补齐，而不是手动编辑 checkbox 或状态列。",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "把这条验收标记为通过：AC-3。",
+      "expected_output": "要求先给出可观察的验证证据，然后跑 align_state.py close-ac <run_dir> AC-3 --evidence \"<命令或观察>\" --step <步骤>；拒绝在没有证据的情况下打勾，也不直接编辑 acceptance.md。",
+      "files": []
+    }
+  ]
+}

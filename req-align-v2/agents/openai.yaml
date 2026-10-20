@@ -1,0 +1,4 @@
+interface:
+  display_name: "需求对齐器 v2"
+  short_description: "把模糊需求对齐成带稳定 ID 的目标、边界、验收标准与架构风险，并产出下游可消费的机器契约"
+  default_prompt: "我有一个模糊需求，帮我对齐它"
