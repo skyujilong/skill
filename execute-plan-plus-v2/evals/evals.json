@@ -1,0 +1,48 @@
+{
+  "skill_name": "execute-plan-plus-v2",
+  "note": "本仓库没有 eval runner，这份文件是行为契约文档，不计入可观测性交付。可观测由 scripts/metrics.py 的 JSONL 留存承担。",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我有一个很大的实现计划，要一次性执行会导致上下文压缩。请用 execute plan plus v2 的方式拆成可执行的小计划：给 Next.js 项目增加用户登录、数据库用户表、JWT session、登录页面、登出按钮、API 鉴权中间件和测试。注意我想要小型 superpower，不要生成过多模板。拆完以后先检查有没有漏掉主体 plan 的需求，再开始执行。",
+      "expected_output": "Creates docs/exec-plan-<yyyy-mm-dd>-<slug>/ (slug from the task, no bare timestamp) with original-plan.md verbatim, requirements.md, an ordered step.json carrying `covers`, split-audit.md as an AC/R/step coverage table, checkpoint.json, and detailed markdown only for the next 3-step window. Runs audit_coverage.py before implementing. Uses build order and per-step verification without heavy boilerplate.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "继续执行 docs/exec-plan-2026-09-02-global-service-catalog 里的大型计划。请读取必要的恢复上下文，从没有 complate 的步骤继续。更新 step.json 时不要手写 JSON，请用脚本更新状态；每个小计划执行完都要立刻跑当前步骤的验证，三个完成后提醒我 compact。",
+      "expected_output": "Reads upstream.json plus the upstream handoff.json first, then original-plan.md, requirements.md, README.md, split-audit.md, checkpoint.json, step.json, and the first non-complate mini-plan. Does not read docs/.skill-metrics/runs.jsonl. Uses update_step_state.py for legal transitions, runs immediate current-step verification, closes covered ACs with evidence before complate, and avoids duplicate compact prompts for the same checkpoint.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "我刚用 req-align v2 对齐完 docs/req-align-2026-09-02-global-service-catalog，现在开始执行。",
+      "expected_output": "Step 0 ingests that run's handoff.json, creates the plan folder named docs/exec-plan-<date>-global-service-catalog/ inheriting the upstream slug, and writes upstream.json with run_dir + slug. requirements.md annotates each R with `Covers: AC-...` using the upstream ids without renumbering. audit_coverage.py passes with 100% AC coverage before any implementation starts.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "02-contract-schemas 这一步实现完了，测试也过了，标记完成。",
+      "expected_output": "Runs align_state.py close-ac <run_dir> AC-N --evidence \"<the test command that passed>\" --step 02-contract-schemas for each covered AC, then update_step_state.py ... complate. If close-ac is skipped, the script refuses the transition and prints the exact close-ac command; the agent follows that instead of hand-editing acceptance.md or step.json.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "执行 docs/exec-plan-* 里的计划时，05-service 连续 3 次验证失败，同时实现中发现 UI mock 必须先于 API 完成（依赖顺序调整）。请按 execute-plan-plus v2 的失败策略处理，并把技术决策记录下来。",
+      "expected_output": "Tracks the failure count in the mini-plan Notes, stops patching after 3 failures, records the root cause as a project pitfall via boundary_state.py pitfall-add when it belongs to an upstream boundary, then blocks with update_step_state.py ... block --reason ... --pitfall PIT-N (or --no-pitfall REASON); the script rejects block without one of the two. Updates README to wait for a human decision and asks the user to choose rollback / re-scope / manual fix. For the dependency reorder, uses --force --reason so override_reason lands in step.json, and logs the decision in decisions.md.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "所有步骤都 complate 了，帮我收尾。",
+      "expected_output": "Runs check_alignment.py <run_dir> --strict-closure and boundary_state.py history-sync. If strict-closure exits non-zero (an AC ticked without evidence, or a 待验证 risk left), reports the plan as NOT complete and lists the gaps instead of declaring success. In generic mode (no upstream.json) falls back to the project's own gates.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "帮我把这个小重构分步执行一下，这个项目没有用过 req-align。",
+      "expected_output": "Detects no docs/req-align-*/handoff.json, states it is running in generic mode, writes no upstream.json, and behaves as a plain resumable workflow: no covers requirement on complate, audit_coverage.py is a no-op, and the final gate falls back to the project's automated checks. Does not error out or invent an upstream.",
+      "files": []
+    }
+  ]
+}
