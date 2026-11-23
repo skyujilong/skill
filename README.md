@@ -153,6 +153,25 @@
 - **`block` 强制表态**：必须给 `--pitfall PIT-N` 或 `--no-pitfall REASON`。
 - **收尾门禁**：`final_gate.py <plan_dir> --req-align-scripts <dir>` 一键跑步骤完成度、AC 覆盖审计、上游 `--strict-closure` 与历史同步；未过则报「未完成」。
 
+四阶段链路：`req-align-v2 -> sdd-v2 -> architecture-discovery-v2 -> execute-plan-plus-v2`，各阶段共用同一 slug，中间层产物用 `req-align-v2/scripts/align_state.py stage-add` 登记。
+
+### 11. `sdd-v2` —— SDD 规格化
+
+把 req-align-v2 的 AC-N 细化成规格，落盘 `docs/sdd-<date>-<slug>/`。
+
+- 产出 `README.md`、`01-overview.md`、`acceptance-matrix.md`；矩阵以上游 AC-N 为行键，不重新编号。
+- 检查脚本：`sdd-v2/scripts/check_sdd.py <sdd_dir> --run-dir <run_dir>`，校验目录结构与 AC 行覆盖（不验证规格内容是否正确）。
+- 完成后用 `align_state.py stage-add --stage sdd` 登记。
+
+### 12. `architecture-discovery-v2` —— 架构发现
+
+针对 RISK-N 做架构与边界发现，落盘 `docs/architecture-discovery-<date>-<slug>/`。
+
+- 产出 `architecture.md`、`flows-and-boundaries.md`、`decisions.md`；结论按证据类型标注。
+- 辅助脚本：`architecture-discovery-v2/scripts/list_risks.py <run_dir>` 列出风险。
+- 检查脚本：`architecture-discovery-v2/scripts/check_arch_discovery.py <dir> --run-dir <run_dir>`，校验结构、证据类型标注以及 `resolve-risk` 是否已回写上游（不验证结论是否正确）。
+- 完成后用 `align_state.py stage-add --stage arch-discovery` 登记。
+
 ## 目录结构
 
 ```
@@ -204,6 +223,15 @@ skill/
 │   ├── tests/
 │   └── evals/
 │       └── evals.json
+├── sdd-v2/
+│   ├── SKILL.md
+│   └── scripts/
+│       └── check_sdd.py             # 结构 + AC 行覆盖检查
+├── architecture-discovery-v2/
+│   ├── SKILL.md
+│   └── scripts/
+│       ├── list_risks.py            # 列出上游 RISK-N
+│       └── check_arch_discovery.py  # 结构 + 证据类型 + resolve-risk 回写检查
 ├── execute-plan-plus-v2/
 │   ├── SKILL.md
 │   ├── scripts/
@@ -262,6 +290,8 @@ cp -R use-worktree ~/.claude/skills/
 - `/req-align` —— 把模糊需求工程化对齐成目标 / 边界 / 验收标准 / 架构风险，落盘为 `docs/req-align-<date>-<slug>/` + 历史索引，并判定下一阶段。
 - `/req-align-v2` —— 同上，外加稳定 ID（AC-N / RISK-N / BND-N）、机器契约 `handoff.json`、模块级边界台账与踩坑库、脚本强制的闭环回写与双向失效标记、两处人工闸门。
 - `/execute-plan-plus-v2` —— 摄取上游 `handoff.json`，产出目录名继承上游 slug，每个 step 声明 `covers` 并在 `complate` 前把覆盖的验收就地闭环；无上游时进入通用模式。
+- `/sdd-v2` —— 把验收标准细化为 `docs/sdd-<date>-<slug>/` 规格，矩阵以 AC-N 为行键，`check_sdd.py` 检查结构与覆盖。
+- `/architecture-discovery-v2` —— 针对 RISK-N 产出 `docs/architecture-discovery-<date>-<slug>/`，`check_arch_discovery.py` 检查结构、证据类型与风险回写。
 
 ## 让工程规范 skill「每次都生效」
 

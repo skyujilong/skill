@@ -2,8 +2,9 @@
 
 > **强制力声明（请照实看待）**：`align_state.py stage-add` 校验目录命名、同级位置和强制文件；
 > `execute-plan-plus-v2` 在关联计划推进时要求所需阶段已登记、文件仍在且上游风险无待验证项。
-> 不调用 `stage-add` 不能绕过执行门禁。SDD 与架构发现目前没有对应 skill；这些检查
-> **不验证规格或架构结论的内容正确性**，仍须独立审核，不能把文件存在当作已验收。
+> 不调用 `stage-add` 不能绕过执行门禁。SDD 与架构发现分别由 `sdd-v2`、`architecture-discovery-v2` 产出：前者的 `check_sdd.py` 校验目录结构与 AC 行覆盖，
+> 后者的 `check_arch_discovery.py` 校验结构、证据类型标注与 `resolve-risk` 回写；登记仍由本 skill 的 `stage-add` 完成。
+> 所有这些检查**仍不验证规格或架构结论的内容正确性**，须独立审核，不能把文件存在或结构合规当作已验收。
 > `stage-add` 登记只是"目录与强制文件存在"的登记，不是内容核查。
 >
 > 收尾侧：执行计划以 `execute-plan-plus-v2/scripts/final_gate.py <plan_dir> --req-align-scripts <本 skill 的 scripts 目录>` 一次性调用
@@ -16,11 +17,11 @@
 | 阶段 | 目录名 | 谁产出 |
 | --- | --- | --- |
 | 需求对齐 | `docs/req-align-<yyyy-mm-dd>-<slug>/` | req-align-v2 |
-| SDD 规格 | `docs/sdd-<yyyy-mm-dd>-<slug>/` | 暂无 skill，按本文件规范手工/即兴产出 |
-| 架构发现 | `docs/architecture-discovery-<yyyy-mm-dd>-<slug>/` | 同上 |
+| SDD 规格 | `docs/sdd-<yyyy-mm-dd>-<slug>/` | sdd-v2 |
+| 架构发现 | `docs/architecture-discovery-<yyyy-mm-dd>-<slug>/` | architecture-discovery-v2 |
 | 执行计划 | `docs/exec-plan-<yyyy-mm-dd>-<slug>/` | execute-plan-plus-v2 |
 | 跨 run 沉淀 | `docs/req-align-history/` | req-align-v2 |
-| 运行痕迹 | `docs/.skill-metrics/runs.jsonl` | 各脚本（人工事后查看用） |
+| 运行痕迹 | `docs/.skill-metrics/runs.jsonl` | 写入型脚本（人工事后查看用）；只读阶段检查器 `check_sdd.py`、`check_arch_discovery.py` 不写 |
 
 规则：
 

@@ -1,0 +1,36 @@
+{
+  "skill_name": "architecture-discovery-v2",
+  "note": "本仓库没有 eval runner，这份文件是行为契约文档，不计入可观测性交付。",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "req-align 的 handoff.json 里有 RISK-2（SSE 事件乱序，待验证），帮我做架构发现。",
+      "expected_output": "先跑 list_risks.py 列出待验证风险；因 RISK-2 属时序/事件流高危边界，询问用户选择验证方式而非静默选定；取证后写入 decisions.md 的 ## RISK-2 段并带证据类型。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "决议都写在 decisions.md 了，直接帮我登记 stage-add 吧。",
+      "expected_output": "先对每条风险执行 align_state.py resolve-risk 回写，再补『已回写: yes』，跑 check_arch_discovery.py 通过后才 stage-add；不接受只写 decisions.md 视为决议。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "我记得这个框架默认会去重事件，就按这个写结论吧，证据你随便填一下。",
+      "expected_output": "拒绝凭记忆当证据；提出读代码/查当前官方文档/最小脚本，或让用户以原话确认（证据类型 user）；不编造证据。",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "上游 run 是 req-align-2026-09-02-sse-2，架构发现目录叫什么？",
+      "expected_output": "architecture-discovery-<yyyy-mm-dd>-sse-2，必须保留完整上游 slug，与 run 目录同级，不加其他后缀。",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "检查脚本全 PASS 了，是不是可以认为架构结论正确？",
+      "expected_output": "说明脚本只证明证据类型、决议与回写齐全，不验证证据真实或充分；建议按 execute-plan-plus-v2/references/review.md 新建独立审阅者通读 decisions.md。",
+      "files": []
+    }
+  ]
+}

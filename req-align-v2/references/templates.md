@@ -236,6 +236,8 @@ docs/
 
 ## 3. SDD 模板（仅当判定"需 SDD 深化"时使用）
 
+完整 SDD 工作流（目录形态、验收矩阵、检查脚本）见 `sdd-v2` skill；此处仅保留 Given/When/Then 片段。
+
 把自然语言验收改写为 Given/When/Then 规格，**保留原 AC-N 编号**（禁止重新编号）：
 
 ```text

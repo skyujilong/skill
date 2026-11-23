@@ -1,6 +1,6 @@
 ---
 name: req-align-v2
-description: 把模糊需求做工程化对齐，并产出可被下游阶段机器消费的契约：查阅模块级边界台账与项目踩坑库、澄清目标、划定支持/暂不支持边界、定优先级、产出带稳定 ID（AC-N）的可观察验收标准与人工验收勾选清单、扫描架构边界风险（RISK-N）、落盘 docs/req-align-<date>-<slug>/（align.md + arch-risk.md + acceptance.md + handoff.json）并沉淀边界决策（BND-N），最后判定下一阶段。闭环回写（勾选验收、决议风险、覆盖旧决策）全部由脚本执行且带失效双向标记；验收证据可由脚本执行命令生成（close-ac --run-cmd）并绑定代码版本，独立审核记入 reviews.json，收尾 --strict-closure 校验证据新鲜度与 final 审核。触发场景：用户给出模糊或一句话需求（"我要做一个 X 系统"、"帮我加个功能"、"这个需求怎么做"）、需求缺边界或验收标准、需求触碰系统边界（事件流/SSE/跨服务/多 Agent/持久化/外部 API 契约）需要在写代码前先识别风险、需要沉淀架构决策以防后期漂移、需要一份执行完成后可人工核对的验收清单、需要为 execute-plan-plus-v2 准备上游契约、或评审已有需求文档是否缺边界、缺可观察验收、缺架构风险识别。
+description: 把模糊需求做工程化对齐，并产出可被下游阶段机器消费的契约：查阅模块级边界台账与项目踩坑库、澄清目标、划定支持/暂不支持边界、定优先级、产出带稳定 ID（AC-N）的可观察验收标准与人工验收勾选清单、扫描架构边界风险（RISK-N）、落盘 docs/req-align-<date>-<slug>/（align.md + arch-risk.md + acceptance.md + handoff.json）并沉淀边界决策（BND-N），最后判定下一阶段。闭环回写（勾选验收、决议风险、覆盖旧决策）全部由脚本执行且带失效双向标记；验收证据可由脚本执行命令生成（close-ac --run-cmd）并绑定代码版本，独立审核记入 reviews.json，收尾 --strict-closure 校验证据新鲜度与 final 审核。触发场景：用户给出模糊或一句话需求（"我要做一个 X 系统"、"帮我加个功能"、"这个需求怎么做"）、需求缺边界或验收标准、需求触碰系统边界（事件流/SSE/跨服务/多 Agent/持久化/外部 API 契约）需要在写代码前先识别风险、需要沉淀架构决策以防后期漂移、需要一份执行完成后可人工核对的验收清单、需要为 execute-plan-plus-v2 准备上游契约、或评审已有需求文档是否缺边界、缺可观察验收、缺架构风险识别。后续阶段由 sdd-v2 与 architecture-discovery-v2 承接。
 ---
 
 # 模糊需求工程化对齐（req-align-v2）
@@ -9,13 +9,13 @@ description: 把模糊需求做工程化对齐，并产出可被下游阶段机�
 本 skill 只做四层链路的第一层，不越界：
 
 ```text
-需求对齐(req-align-v2) → SDD 规格化 → 架构发现 → 执行计划(execute-plan-plus-v2)
+需求对齐(req-align-v2) → SDD 规格化(sdd-v2) → 架构发现(architecture-discovery-v2) → 执行计划(execute-plan-plus-v2)
 ```
 
 ## 职责边界
 
 - **做**：定位需求所在层 → 检索边界台账与踩坑库 → 最少澄清 → 对齐六要素（带 AC-N）→ 边界扫描（带 RISK-N）→ 判定下一阶段 → 落盘 per-run 目录 + `handoff.json` → 沉淀边界决策（BND-N）。
-- **不做**：完整 SDD 规格生成、架构设计、写代码、拆执行计划。检测到下游工作直接转交对应 skill 或提示用户。
+- **不做**：完整 SDD 规格生成、架构设计、写代码、拆执行计划。检测到下游工作直接转交 `sdd-v2` / `architecture-discovery-v2` / `execute-plan-plus-v2` 或提示用户。
 
 ## 命名规范
 
@@ -30,8 +30,8 @@ description: 把模糊需求做工程化对齐，并产出可被下游阶段机�
 | 层 | 用户的话 | 动作 |
 | --- | --- | --- |
 | 需求层 | "我要做一个漫画生成系统" | 本 skill 主场，进入 Step 2 |
-| SDD 层 | "角色一致性必须可验证" | 跳过对齐，给 `references/templates.md` §3 的 SDD 模板入口 |
-| 架构层 | "用 ScenePlanner Agent + ShotPlanner" | 不做需求对齐，转架构评审（用 codebase-memory `trace_path` 查调用链） |
+| SDD 层 | "角色一致性必须可验证" | 跳过对齐，转 `sdd-v2`（Given/When/Then 片段见 `references/templates.md` §3） |
+| 架构层 | "用 ScenePlanner Agent + ShotPlanner" | 不做需求对齐，转 `architecture-discovery-v2`（查真实调用链仍可用 codebase-memory `trace_path`） |
 | 执行层 | "第一步建 domain model" | 已是计划，转 `execute-plan-plus-v2` |
 
 ### Step 2 检索边界台账与踩坑库
@@ -75,8 +75,8 @@ python3 scripts/boundary_state.py scan --keywords <模块名>,<关键词> [--his
 | 判定 | 条件 | 去向 |
 | --- | --- | --- |
 | 直接推进 | 验收可观察 + 无高危边界 | 执行计划 |
-| 需 SDD 深化 | 存在"机器和测试可验证"缺口 | `references/templates.md` §3 SDD 模板 |
-| 先做架构发现 | 存在高危边界（事件流 / 跨服务契约不明） | codebase-memory `trace_path` 查真实调用链 |
+| 需 SDD 深化 | 存在"机器和测试可验证"缺口 | `sdd-v2`，产出后用 `stage-add --stage sdd` 登记 |
+| 先做架构发现 | 存在高危边界（事件流 / 跨服务契约不明） | `architecture-discovery-v2`，产出后用 `stage-add --stage arch-discovery` 登记 |
 
 落地顺序（**先对话确认，再落文件**；用户只要对话结果时不落盘）：
 

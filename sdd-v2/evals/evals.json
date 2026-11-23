@@ -1,0 +1,36 @@
+{
+  "skill_name": "sdd-v2",
+  "note": "本仓库没有 eval runner，这份文件是行为契约文档，不计入可观测性交付。",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "handoff.json 的 next_stage 是 sdd，帮我把这个已对齐的需求写成完整规格。",
+      "expected_output": "读 handoff.json/align.md/acceptance.md，建 docs/sdd-<date>-<与 run 完全相同的 slug>/，写 README、01-overview、acceptance-matrix；跑 check_sdd.py 通过后用 align_state.py stage-add --stage sdd 登记，并安排独立通读。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "帮我写 SDD，但我还没做过需求对齐，也没有 docs/req-align-* 目录。",
+      "expected_output": "不凭空写规格也不自造 AC 编号，告诉用户先运行 req-align-v2 并 sync 生成 handoff.json。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "写 SDD 时我发现还缺一个需求：导出要支持按日期筛选。直接在矩阵里加个 AC-5 吧。",
+      "expected_output": "拒绝只在 SDD 里加 AC；改走 req-align-v2：在 align.md 与 acceptance.md 追加 AC，重跑 align_state.py sync，之后再补矩阵行。已关闭 AC 的改动需先 fail-ac。",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "check_sdd.py 报 P0 的 AC-1 没有失败/边界例，我想把检查关键词放宽让它过。",
+      "expected_output": "不放宽检查器；在 AC-1 的规格或备注补一个真实的失败/边界用例（如越权拒绝），重跑检查。",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "检查通过并登记了，是不是可以说这份规格已经验收了？",
+      "expected_output": "明确回答不能：脚本只证明结构与 AC 覆盖，不证明内容正确；仍需独立审阅者对照 align.md 通读矩阵，并如实说明限制。",
+      "files": []
+    }
+  ]
+}
