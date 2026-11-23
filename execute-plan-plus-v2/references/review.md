@@ -18,6 +18,67 @@ residual risks and tests not run.
 Focus on wrong behavior that can still pass the author's tests: authorization scope, error
 propagation, concurrency, data migrations, compatibility, unintended edits.
 
+## Creating the independent reviewer (per tool)
+
+The scripts do not create a reviewer. The agent running this skill must start one with the
+tool it runs in. Pick the first row that matches; every method gives a fresh context, but
+**read-only is only enforced where noted**, so always run the read-only check below.
+
+### Prefer the tool's native reviewer
+
+Use the tool's own review command first; create a custom agent only where this table says so.
+Never pass `--fix` or `--comment` (they edit code or post to a PR).
+
+| Tool | Native reviewer | Takes our AC/risk packet? | Use it for |
+| --- | --- | --- | --- |
+| Claude Code | `/code-review <branch\|path\|range>` (alias `/review`), runs as a background subagent with its own context | Not documented; it looks for correctness bugs in the diff | Milestone and time-backstop reviews. For `final`, also use a custom AC-aware reviewer below |
+| Codex | `/review` in the TUI (pick a preset or "custom review instructions"), or `codex review --uncommitted \| --base <branch> \| --commit <sha>`; per the command reference a run takes exactly one target **or** custom instructions (`codex review "<instructions>"`), so name the diff scope inside the instructions. Scripted read-only run: `codex exec --sandbox read-only --ask-for-approval never "<instructions>"` | Yes, via custom review instructions (paste the review packet below) | All reviews, including `final` |
+| WorkBuddy | None. `/code-review` exists in CodeBuddy Code but is **not available in the WorkBuddy client** (confirmed by the user) | - | Always use the custom reviewer agent below |
+
+A native reviewer that cannot take the packet does not know the ACs or risk decisions, so it
+cannot approve a `final` review alone: record it as a milestone review and add an AC-aware
+reviewer (rows below) for `final`. Paste the native reviewer's full output into the plan
+notes as well.
+
+### Custom reviewer agent (when the native one does not fit)
+
+| Tool | How to create it | Read-only enforced? |
+| --- | --- | --- |
+| Claude Code | Built-in `Explore` subagent (Write/Edit denied), or a custom file `.claude/agents/<name>.md` / `~/.claude/agents/<name>.md` with YAML frontmatter `name`, `description`, and `tools: Read, Grep, Glob, Bash` plus `disallowedTools: Write, Edit`. Ask Claude to use that subagent for the review. | Yes for Write/Edit; `Bash` can still modify files, so leave it out unless the reviewer must run tests. |
+| Codex | Ask Codex explicitly to spawn a subagent (it delegates on a direct request or when `AGENTS.md`/a skill asks). Custom agent: `.codex/agents/<name>.toml` or `~/.codex/agents/<name>.toml` with required `name`, `description`, `developer_instructions`. Inspect threads with `/subagents`. | **No.** Subagents inherit the parent's sandbox and approvals and a custom agent file cannot override them; "do not edit files" is an instruction only. Set the parent turn to a read-only permission mode before delegating if you need enforcement. |
+| WorkBuddy | Create a custom agent whose tools exclude write/edit, or ask WorkBuddy to create one, then ask it to use that agent. Per Tencent's CodeBuddy Code docs (the same engine family), agents are Markdown files with YAML frontmatter (`name`, `description`, `tools`, `model`) in `.codebuddy/agents/` or `~/.codebuddy/agents/`, managed with `/agents`. A third-party analysis of the WorkBuddy desktop client reports `.workbuddy/agents/` and `~/.workbuddy/agents/`. | **Unverified for WorkBuddy.** The paths and fields above are from CodeBuddy Code docs and a third-party analysis, not WorkBuddy's own documentation. Check the agent's tool list in the UI. |
+| None of the above works | Start a **new session** of the same tool with no shared history and give it only the review packet below, or ask a human. | No - use the read-only check. |
+
+Official references: Claude Code <https://code.claude.com/docs/en/sub-agents>; Codex
+<https://developers.openai.com/codex/subagents>; CodeBuddy Code
+<https://cloud.tencent.com/document/product/1831/137015>.
+
+### Read-only check (all tools)
+
+Before the review run `git rev-parse HEAD` and `git status --porcelain`; after it, run both
+again. If either changed, the reviewer edited the repository: discard that review, restore the
+author's state, and re-run with a stricter setup. Do not record such a review.
+
+### Reviewer prompt template
+
+Give the reviewer exactly this, filled in. Do not add your own conclusion.
+
+```text
+You are an independent code reviewer. You did not write this code. Do NOT edit, create or delete
+any file and do not run commands that modify the repository.
+Original request: <paste the user's request / plan goal>
+Upstream decisions: <AC ids with text, risk decisions>
+Scope: <steps or commit range, e.g. BASE..HEAD>; inspect the real diff and the files, not my summary.
+Verification output: <commands run and their real output>
+Return findings ordered by severity (Critical/High/Medium/Low). For each: file:line, a concrete
+failure scenario, the AC or decision it violates, and the missing test. If there are no findings,
+say what you checked and list residual risks and tests not run. Be concrete; do not pad.
+```
+
+After the review, paste the reviewer's full reply into the plan notes; a one-line "reviewed"
+is not evidence. The reviewer name you pass to `record-review` should name the reviewer
+subagent/session (for example `claude-subagent:independent-reviewer`), never the author.
+
 ## When
 
 - **Milestone**: a meaningful behavior/boundary checkpoint (first vertical slice, external
