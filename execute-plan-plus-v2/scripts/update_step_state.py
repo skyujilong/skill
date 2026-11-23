@@ -5,10 +5,13 @@ Usage:
   python3 scripts/update_step_state.py <step.json> <step> runing
   python3 scripts/update_step_state.py <step.json> <step> complate
   python3 scripts/update_step_state.py <step.json> <step> complate --covers-none --reason TEXT
+  python3 scripts/update_step_state.py <step.json> <step> complate --no-code-change --reason TEXT
   python3 scripts/update_step_state.py <step.json> <step> runing --force --reason TEXT
   python3 scripts/update_step_state.py <step.json> <step> block --reason TEXT \
       (--pitfall PIT-N | --no-pitfall REASON)
   python3 scripts/update_step_state.py <step.json> <step> unblock
+  python3 scripts/update_step_state.py <step.json> <step> declare [--depends-on a,b] \
+      [--produces a,b] [--exposes a,b] [--consumes a,b] --reason TEXT
 
 The intentionally misspelled states match the execute-plan-plus contract.
 
@@ -40,6 +43,7 @@ from typing import Any, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import interfaces  # noqa: E402
 import metrics  # noqa: E402
 
 SKILL = "execute-plan-plus-v2"
@@ -113,6 +117,9 @@ def validate_steps(data: list) -> None:
         if item["step"] in seen:
             fail(f"duplicate step name found: {item['step']}")
         seen.add(item["step"])
+    errors = interfaces.field_errors(data)
+    if errors:
+        fail(errors[0])
 
 
 def atomic_write_json(path: Path, data: Any) -> None:
@@ -407,13 +414,75 @@ def check_upstream_readiness(plan_dir: Path, upstream: dict, handoff_path: Path,
         )
 
 
+# ------------------------------------------------------------ deps and commits
+
+
+def check_dependencies(data: list, index: int) -> None:
+    """依赖门禁：depends_on 与提供所消费符号的步骤必须全部 complate；--force 也不放行。"""
+    pending = [f"{name} ({why})" for name, why in interfaces.prerequisites(data, index).items()
+               if next(i for i in data if i["step"] == name)["state"] != "complate"]
+    if pending:
+        fail(f"step '{data[index]['step']}' cannot start: prerequisite steps not complate: "
+             + ", ".join(pending))
+
+
+def start_binding(step_json: Path, target: dict) -> bool:
+    top = interfaces.repo_top(step_json.resolve().parent)
+    head = interfaces.short_head(top) if top else None
+    if head is None:
+        print("note: plan not in a git repo with commits; commit binding skipped")
+        return False
+    target["base_commit"] = head
+    return True
+
+
+def plan_uses_commit_binding(data: list) -> bool:
+    return any(item.get("base_commit") or item.get("commit") for item in data)
+
+
+def finish_binding(step_json: Path, data: list, target: dict, no_code_change: bool,
+                   reason: str) -> None:
+    top = interfaces.repo_top(step_json.resolve().parent)
+    if top is None:
+        print("note: plan not in a git repo; commit binding skipped")
+        return
+    head = interfaces.short_head(top)
+    if head is None:
+        fail("git repository has no commits: commit this step's changes first")
+    if not target.get("base_commit"):
+        if not plan_uses_commit_binding(data):
+            print("note: legacy plan without commit binding; commit binding skipped")
+            return
+        fail(f"step '{target['step']}' is runing without base_commit while the plan uses "
+             "commit binding: re-issue `runing` on it to backfill base_commit from HEAD "
+             "(then commit the step's changes), then retry complate")
+    try:
+        dirty = interfaces.dirty_paths(top)
+    except interfaces.GitError as exc:
+        fail(str(exc))
+    if dirty:
+        listing = "\n".join(f"  {path}" for path in dirty[:10])
+        more = f"\n  ... and {len(dirty) - 10} more" if len(dirty) > 10 else ""
+        fail(f"step '{target['step']}' cannot be complate: commit this step's changes first "
+             f"(uncommitted files outside top-level docs/):\n{listing}{more}")
+    if no_code_change:
+        target["no_code_change"] = True
+        target["no_code_change_reason"] = reason
+    elif target.get("base_commit") == head:
+        fail(f"step '{target['step']}' cannot be complate: no new commit since it started "
+             f"({head}). Commit the step's changes, or pass --no-code-change --reason TEXT "
+             "if it genuinely changes no code.")
+    target["commit"] = head
+
+
 # -------------------------------------------------------------------- cli glue
 
 
 def parse_args(argv: list) -> dict:
     options = {
         "force": False, "reason": None, "covers_none": False,
-        "pitfall": None, "no_pitfall": None,
+        "pitfall": None, "no_pitfall": None, "no_code_change": False,
+        "depends_on": None, "produces": None, "exposes": None, "consumes": None,
     }
     positionals = []
     index = 0
@@ -423,7 +492,10 @@ def parse_args(argv: list) -> dict:
             options["force"] = True
         elif arg == "--covers-none":
             options["covers_none"] = True
-        elif arg in ("--reason", "--pitfall", "--no-pitfall"):
+        elif arg == "--no-code-change":
+            options["no_code_change"] = True
+        elif arg in ("--reason", "--pitfall", "--no-pitfall", "--depends-on", "--produces",
+                     "--exposes", "--consumes"):
             index += 1
             if index >= len(argv):
                 fail(f"{arg} requires a value")
@@ -436,10 +508,42 @@ def parse_args(argv: list) -> dict:
     if len(positionals) != 3:
         fail(
             "usage: update_step_state.py <step.json> <step> "
-            "runing|complate|block|unblock [options]"
+            "runing|complate|block|unblock|declare [options]\n"
+            "  options: --force --reason TEXT | --covers-none --reason TEXT | "
+            "--no-code-change --reason TEXT |\n"
+            "           declare: [--depends-on a,b] [--produces a,b] [--exposes a,b] "
+            "[--consumes a,b] --reason TEXT"
         )
     options["step_json"], options["step_name"], options["new_state"] = positionals
     return options
+
+
+DECLARE_FIELDS = ("depends_on", "produces", "exposes", "consumes")
+
+
+def split_symbols(value: str) -> list:
+    return [part.strip() for part in value.split(",")] if value.strip() else []
+
+
+def declare_fields(step_json: Path, data: list, target: dict, options: dict,
+                   reason: str) -> None:
+    """改写 pending 步骤的接口声明：给出的字段整体替换，写入前复用 validate_steps 校验。"""
+    given = {key: split_symbols(options[key]) for key in DECLARE_FIELDS
+             if options[key] is not None}
+    if not given:
+        fail("declare needs at least one of --depends-on/--produces/--exposes/--consumes")
+    if not reason.strip():
+        fail("declare requires a non-empty --reason")
+    if target["state"] != "pending":
+        fail(f"step '{target['step']}' is {target['state']}: declarations can only change while "
+             "pending. Record the change in decisions.md and re-plan instead.")
+    target.update(given)
+    validate_steps(data)
+    atomic_write_json(step_json, data)
+    metrics.emit(SKILL, "step_declare", run=step_json.resolve().parent, step=target["step"],
+                 fields=sorted(given), reason=reason)
+    print(f"declared {target['step']}: {', '.join(f'{k}={given[k]}' for k in given)} "
+          f"(reason: {reason})")
 
 
 def main(argv: list = None) -> None:
@@ -449,8 +553,10 @@ def main(argv: list = None) -> None:
     step_json = Path(options["step_json"])
     reason = options["reason"] or ""
 
-    if new_state not in VALID_STATES and new_state not in ("block", "unblock"):
-        fail(f"state must be one of: {', '.join(sorted(VALID_STATES))}, block, unblock")
+    if new_state not in VALID_STATES and new_state not in ("block", "unblock", "declare"):
+        fail(f"state must be one of: {', '.join(sorted(VALID_STATES))}, block, unblock, declare")
+    if new_state != "declare" and any(options[key] is not None for key in DECLARE_FIELDS):
+        fail("--depends-on/--produces/--exposes/--consumes are only valid with declare")
     if not step_json.exists():
         fail(f"step.json not found: {step_json}")
 
@@ -467,6 +573,16 @@ def main(argv: list = None) -> None:
         fail(f"step not found: {step_name}")
     target = data[target_index]
     old_state = target["state"]
+
+    if new_state == "declare":
+        declare_fields(step_json, data, target, options, reason)
+        return
+
+    if options["no_code_change"]:
+        if new_state != "complate":
+            fail("--no-code-change is only valid with complate")
+        if not reason.strip():
+            fail("--no-code-change requires a non-empty --reason")
 
     if new_state == "block":
         if not reason.strip():
@@ -523,6 +639,8 @@ def main(argv: list = None) -> None:
             # --force 只放宽步骤顺序，上游就绪门禁一律不跳过
             handoff_path, handoff = resolve_handoff(plan_dir, upstream)
             check_upstream_readiness(plan_dir, upstream, handoff_path, handoff)
+        check_dependencies(data, target_index)
+        start_binding(step_json, target)
         target["state"] = new_state
         target["override_reason"] = reason
         atomic_write_json(step_json, data)
@@ -535,6 +653,12 @@ def main(argv: list = None) -> None:
         return
 
     if old_state == new_state:
+        if new_state == "runing" and not target.get("base_commit"):
+            if start_binding(step_json, target):
+                atomic_write_json(step_json, data)
+                print(f"unchanged {step_name} -> runing; backfilled base_commit="
+                      f"{target['base_commit']} from HEAD")
+                return
         print(f"unchanged {step_name} -> {new_state}")
         return
 
@@ -542,6 +666,7 @@ def main(argv: list = None) -> None:
         fail(f"illegal transition for {step_name}: {old_state} -> {new_state}")
 
     if new_state == "runing":
+        check_dependencies(data, target_index)
         incomplete = [item["step"] for item in data[:target_index]
                       if item["state"] != "complate"]
         if incomplete:
@@ -560,6 +685,10 @@ def main(argv: list = None) -> None:
             target["covers_none"] = True
             target["covers_none_reason"] = reason
 
+    if new_state == "runing":
+        start_binding(step_json, target)
+    else:
+        finish_binding(step_json, data, target, options["no_code_change"], reason)
     target["state"] = new_state
     atomic_write_json(step_json, data)
     metrics.emit(SKILL, "step_state", run=plan_dir, step=step_name,

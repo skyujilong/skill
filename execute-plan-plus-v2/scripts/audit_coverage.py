@@ -16,6 +16,11 @@ Point 3 exists because re-deriving requirements from prose tends to invent
 independent numbering schemes that don't map back to upstream AC ids. Here the
 `R` grouping is still allowed, but it must map onto the upstream AC ids.
 
+Interface audit (both modes, when step.json exists): see `interfaces.audit_interfaces`.
+Steps may declare `depends_on` / `produces` / `exposes` / `consumes`; every produced symbol
+needs a later consumer or an `exposes` declaration, every consumed symbol an earlier producer.
+Reported as its own `[PASS]/[FAIL]/[WARN]` lines; declaring nothing is only a WARN.
+
 Exit codes: 0 pass / 1 coverage gap / 2 bad arguments or paths.
 """
 
@@ -28,6 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import interfaces  # noqa: E402
 import metrics  # noqa: E402
 
 SKILL = "execute-plan-plus-v2"
@@ -79,6 +85,20 @@ def requirement_covers(plan_dir: Path) -> set:
     return found
 
 
+def interface_report(plan_dir: Path) -> list:
+    path = plan_dir / "step.json"
+    if not path.is_file():
+        return []
+    steps = read_json(path)
+    if not isinstance(steps, list):
+        return [("FAIL", "step.json must be a JSON array")]
+    print("── interface audit ──")
+    results = interfaces.audit_interfaces(steps)
+    for level, message in results:
+        print(f"[{level}] {message}")
+    return [message for level, message in results if level == "FAIL"]
+
+
 def main(argv=None) -> int:
     args = sys.argv[1:] if argv is None else argv
     if len(args) != 1:
@@ -92,7 +112,7 @@ def main(argv=None) -> int:
     upstream_path = plan_dir / "upstream.json"
     if not upstream_path.is_file():
         print("no upstream.json — generic mode, coverage audit skipped")
-        return 0
+        return 1 if interface_report(plan_dir) else 0
     upstream = read_json(upstream_path)
     if not isinstance(upstream, dict):
         print(f"[ERROR] {upstream_path} must be a JSON object", file=sys.stderr)
@@ -178,6 +198,9 @@ def main(argv=None) -> int:
         print(f"[{'OK  ' if owners else 'GAP '}] {ac}: {', '.join(owners) if owners else '(no step)'}")
     for problem in problems:
         print(f"[FAIL] {problem}")
+    print(f"\ncoverage: {'PASS' if not problems else 'FAIL'}")
+    interface_problems = interface_report(plan_dir)
+    problems = problems + interface_problems
     print(f"\nresult: {'PASS' if not problems else 'FAIL'}")
 
     metrics.emit(SKILL, "coverage_audit", run=plan_dir, passed=not problems,

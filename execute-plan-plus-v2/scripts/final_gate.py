@@ -12,7 +12,10 @@ Gates (one PASS/FAIL line each, then `result: PASS|FAIL`):
    - strict-closure: `check_alignment.py <run_dir> --strict-closure` from DIR
      (AC closure, script-verified P0 evidence, fresh evidence rev, final independent review);
    - history-sync: `boundary_state.py history-sync <run_dir>` from DIR.
-   Without upstream.json it runs in generic mode: only the steps gate.
+   Without upstream.json it runs in generic mode: the steps gate, the interface audit
+   (`audit_coverage.py`, WARN when the plan declares no interfaces) and the commit gate.
+3. If the plan is inside a git repo: every `complate` step has a recorded `commit` or
+   `no_code_change` (WARN only when no step carries any commit field - legacy plan).
 
 Each gate subprocess has a timeout (GATE_TIMEOUT_SECONDS = 900); a gate that exceeds it is
 reported as FAIL. Override with the FINAL_GATE_TIMEOUT environment variable (seconds).
@@ -72,6 +75,31 @@ def locate_run_dir(plan_dir: Path, upstream: dict) -> Optional[Path]:
                  and (c / "handoff.json").is_file()), None)
 
 
+def commit_gate(plan_dir: Path, steps: list) -> Optional[bool]:
+    """步骤提交门禁；计划不在 git 仓库内时返回 None（不适用）。"""
+    try:
+        probe = subprocess.run(
+            ["git", "-C", str(plan_dir.resolve()), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True)
+    except OSError as exc:
+        print(f"    [WARN] git could not be executed ({exc}); step commit gate skipped")
+        return None
+    if probe.returncode != 0:
+        return None
+    done = [s for s in steps if s.get("state") == "complate"]
+    bound = lambda s: bool(s.get("commit")) or s.get("no_code_change") is True  # noqa: E731
+    if not any(bound(s) or s.get("base_commit") for s in steps):
+        print("[PASS] step commits: no step has commit fields (legacy plan)")
+        print("    [WARN] steps are not bound to git commits; resume anchors unavailable")
+        return True
+    missing = [str(s.get("step")) for s in done if not bound(s)]
+    if missing:
+        print(f"[FAIL] step commits: complate without commit/no_code_change: {', '.join(missing)}")
+        return False
+    print(f"[PASS] step commits: all {len(done)} complate steps bound to a commit")
+    return True
+
+
 def gate_timeout() -> float:
     try:
         value = float(os.environ.get(TIMEOUT_ENV, ""))
@@ -88,6 +116,10 @@ def run_gate(label: str, cmd: list, cwd: Optional[Path] = None) -> bool:
     except subprocess.TimeoutExpired:
         print(f"[FAIL] {label}")
         print(f"    timed out after {timeout:g}s")
+        return False
+    except OSError as exc:
+        print(f"[FAIL] {label}")
+        print(f"    cannot execute gate command: {exc}")
         return False
     passed = done.returncode == 0
     print(f"[{'PASS' if passed else 'FAIL'}] {label}")
@@ -146,6 +178,9 @@ def main(argv: list = None) -> int:
           + (f"not complate: {', '.join(pending)}" if pending else f"all {len(steps)} complate"))
     results.append(not pending)
 
+    if upstream is None:
+        results.append(run_gate("interfaces (audit_coverage.py)",
+                                [sys.executable, str(HERE / "audit_coverage.py"), str(plan_dir)]))
     if upstream is not None:
         results.append(run_gate("coverage (audit_coverage.py)",
                                 [sys.executable, str(HERE / "audit_coverage.py"), str(plan_dir)]))
@@ -162,6 +197,9 @@ def main(argv: list = None) -> int:
                 "history-sync (boundary_state.py history-sync)",
                 [sys.executable, str(scripts_dir.resolve() / "boundary_state.py"),
                  "history-sync", str(run_dir.resolve())], cwd=scripts_dir))
+    committed = commit_gate(plan_dir, steps)
+    if committed is not None:
+        results.append(committed)
     print(REMINDER)
     passed = all(results)
     print(f"result: {'PASS' if passed else 'FAIL'}")

@@ -1,6 +1,6 @@
 ---
 name: execute-plan-plus-v2
-description: Use this skill when the user wants to execute a large/long implementation plan, split a plan into resumable chunks, avoid context loss, continue from docs/exec-plan-* state, or checkpoint with /compact. It ingests an upstream req-align-v2 handoff.json when one exists (writing upstream.json so the link survives /compact), traces every step to stable acceptance ids via step.json `covers`, closes upstream ACs incrementally with executable evidence (close-ac --run-cmd) bound to the code version, records independent review in reviews.json, and ends with one final_gate.py command (steps, coverage, strict-closure incl. fresh evidence + final review, history-sync). Without an upstream it runs in generic mode. Keep it lightweight - persist the original plan, create an ordered step index, audit AC coverage, expand only the next small batch of steps, verify each step immediately, update step.json only via script, pause after each 3-step checkpoint.
+description: Use this skill when the user wants to execute a large/long implementation plan, split a plan into resumable chunks, avoid context loss, continue from docs/exec-plan-* state, or checkpoint with /compact. It ingests an upstream req-align-v2 handoff.json when one exists (writing upstream.json so the link survives /compact), traces every step to stable acceptance ids via step.json `covers`, declares step-to-step interfaces (`produces`/`exposes`/`consumes`/`depends_on`) audited against orphan code, binds each step to a git commit and checks anchors on resume (`resume_check.py`), closes upstream ACs incrementally with executable evidence (close-ac --run-cmd) bound to the code version, records independent review in reviews.json, and ends with one final_gate.py command (steps, coverage, strict-closure incl. fresh evidence + final review, history-sync). Without an upstream it runs in generic mode. Keep it lightweight - persist the original plan, create an ordered step index, audit AC coverage, expand only the next small batch of steps, verify each step immediately, update step.json only via script, pause after each 3-step checkpoint.
 ---
 
 # Execute Plan Plus v2
@@ -68,6 +68,8 @@ with `Covers: AC-N`), `decisions.md` (append-only), `README.md` (resume guide), 
 3. Create ordered `step.json` (build/dependency order) with `covers` per entry, e.g.
    `{ "step": "05-service-and-api-check", "state": "pending", "covers": ["AC-1"] }`. Do not
    invent partial acceptance to fill `covers`; a `covers: []` step is an explicit non-closure.
+   Also fill `depends_on`, `produces`, `exposes`, `consumes` per step (symbols as stable
+   strings; format and rules in `references/interfaces-and-commits.md`).
 4. Write `split-audit.md`: table `| AC | R | Final proving step | Preparatory steps | Status |`
    plus a "Fixes made during audit" list.
 5. Run the coverage gate **before implementing anything** and fix until it passes:
@@ -79,7 +81,9 @@ python3 scripts/audit_coverage.py docs/exec-plan-<yyyy-mm-dd>-<slug>/
 It fails on: upstream with no AC at all; an upstream AC covered by no step; a `covers` id
 unknown upstream; `requirements.md` missing, lacking `Covers:`, referencing unknown ids, or
 disagreeing with the union of `step.json` `covers`; handoff `contract_version`/slug mismatch.
-Generic mode prints "skipped" - no upstream is not evidence of coverage; record a small
+It also runs the interface audit (every produced symbol has a later consumer or is `exposes`;
+every consumed symbol has an earlier producer; no declarations at all is only a WARN).
+Generic mode prints coverage "skipped" - no upstream is not evidence of coverage; record a small
 observable checklist in the mini-plans and use project gates.
 
 6. Expand mini-plans for the next 3 pending steps only.
@@ -135,7 +139,9 @@ python3 <req-align-v2>/scripts/align_state.py close-ac <run_dir> AC-1 \
    closed AC refreshes its evidence (latest wins). Details: `references/verification.md`.
 7. At a review trigger (milestone, 45-minute backstop, final), read `references/review.md`
    first, get an independent reviewer, then `align_state.py record-review ...`.
-8. `python3 scripts/update_step_state.py <plan>/step.json <step> complate`
+8. Commit this step's changes (project's own commit convention), then
+   `python3 scripts/update_step_state.py <plan>/step.json <step> complate` - it needs a clean
+   tree (top-level `docs/` excepted) and a new commit, or `--no-code-change --reason`.
 9. Report briefly: step, files changed, verification result, next step.
 
 ## Updating step.json
@@ -147,15 +153,19 @@ python3 scripts/update_step_state.py <sj> NN-step runing
 python3 scripts/update_step_state.py <sj> NN-step complate
 python3 scripts/update_step_state.py <sj> NN-step runing --force --reason "..."        # reorder
 python3 scripts/update_step_state.py <sj> NN-step complate --covers-none --reason "..." # no AC
+python3 scripts/update_step_state.py <sj> NN-step complate --no-code-change --reason "..."
 python3 scripts/update_step_state.py <sj> NN-step block --reason "..." (--pitfall PIT-N | --no-pitfall "...")
 python3 scripts/update_step_state.py <sj> NN-step unblock
+python3 scripts/update_step_state.py <sj> NN-step declare --exposes "a,b" --reason "..."  # pending only
 ```
 
 Legal transitions: `pending -> runing` (all earlier steps `complate`); `runing -> complate`
 (covered ACs closed). Everything else is rejected. `--force` (needs `--reason`) is **only**
 `pending -> runing` reordering; it cannot complete a step or skip upstream readiness checks.
 `--covers-none` needs a non-empty `--reason` and is only for steps with empty `covers`. A
-blocked step accepts nothing but `unblock`. A reason records why, not that anything passed.
+blocked step accepts nothing but `unblock`. A reason records why, not that anything passed. `declare` (also `--depends-on`/`--produces`/
+`--consumes`; each flag replaces that field) is the only way to fix interface declarations and
+only works while the step is `pending`.
 
 ## Hard gates (what blocks what)
 
@@ -164,6 +174,11 @@ blocked step accepts nothing but `unblock`. A reason records why, not that anyth
 | Folder name carries upstream slug | `update_step_state.py` | every transition | rename to `exec-plan-<date>-<slug>` |
 | Contract fresh / version / slug / stage registered / no `待验证` risk | `update_step_state.py` | `runing`, `complate` (also `--force`) | `align_state.py sync`, `stage-add`, `resolve-risk` |
 | Step order | `update_step_state.py` | `runing` with earlier step unfinished | finish earlier steps or `--force --reason` |
+| Prerequisites: `depends_on` and producers of consumed symbols `complate` | `update_step_state.py` | `runing` (also `--force`) | finish them first |
+| Clean tree (except top-level `docs/`) + new commit since `runing` | `update_step_state.py` | `complate` (git repos) | commit, or `--no-code-change --reason` |
+| Interface audit (orphan risk) | `audit_coverage.py` | final gate (run it before coding) | `update_step_state.py ... declare` |
+| Step commits recorded | `final_gate.py` | final gate (FAIL if mixed, WARN if legacy) | complate steps via the script |
+| Commit anchors still in HEAD | `resume_check.py` | resume (exit 1 = STALE) | re-verify stale steps |
 | Covered AC closed in handoff **and** `acceptance.md` shows ticked box + non-empty evidence | `update_step_state.py` | `complate` | `align_state.py close-ac` (not hand edits) |
 | Step with empty `covers` | `update_step_state.py` | `complate` | list AC ids or `--covers-none --reason` |
 | Blocked step | `update_step_state.py` | `runing`/`complate`/`--force` | user decision, then `unblock` |
@@ -186,7 +201,8 @@ It checks, one PASS/FAIL line each: every step `complate`; `audit_coverage.py`;
 evidence script-verified and fresh against the current code fingerprint, latest `reviews.json`
 entry an approved `final` for the current fingerprint); `boundary_state.py history-sync`.
 `--req-align-scripts` is required when `upstream.json` exists; without upstream it is generic
-mode and only the steps gate runs. Fingerprint = HEAD + modified/untracked non-ignored files
+mode runs the steps gate, the interface audit (`audit_coverage.py`) and, in git repos, the
+commit gate. Fingerprint = HEAD + modified/untracked non-ignored files
 excluding only the TOP-LEVEL `docs/` and the req-align run dir; without git the freshness
 comparisons only WARN. Keep the req-align and exec-plan folders under the repo's top-level
 `docs/` (the run dir must be a sibling of the plan dir), and install the skills outside the repo
@@ -203,16 +219,19 @@ gap.
 `--run-cmd true` passes; reviewer identity is a recorded name, not authenticated; `reviews.json`
 and `acceptance.md` can be hand-edited; independence rests on a separate human or fresh
 subagent; there is no mutation-testing engine; evals have no runner; generic mode only gets the
-documented process plus the gate's step check.
+documented process plus the steps, interface and commit gates. Commit recording is not content
+verification (see `references/interfaces-and-commits.md`).
 
 ## Resume and checkpoint
 
 After steps 3, 6, 9...: update notes, `README.md`, `checkpoint.json`, expand the next window,
-ask for `/compact`. When continuing an existing folder: read `upstream.json` + handoff, then
+ask for `/compact`. When continuing an existing folder: first run `python3 scripts/resume_check.py <plan>/` (STALE
+steps, changes after the last step, expected vs unexpected orphans), then read `upstream.json` + handoff, then
 `original-plan.md`, `requirements.md`, `decisions.md`, `README.md`, `split-audit.md`,
 `checkpoint.json`, `step.json`, the first non-`complate` mini-plan; never read
 `docs/.skill-metrics/runs.jsonl`. Before either, read `references/resume-and-checkpoint.md`
-(checkpoint format, anchor comparison, blocked-step handling).
+(checkpoint format, anchor comparison, blocked-step handling) and
+`references/interfaces-and-commits.md`.
 
 ## Keep it small
 

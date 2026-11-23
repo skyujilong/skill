@@ -41,8 +41,12 @@ Read in order: `upstream.json` (+ the `handoff.json` it points to), `original-pl
 `requirements.md`, `decisions.md`, `README.md`, `split-audit.md`, `checkpoint.json`,
 `step.json`, the first non-`complate` mini-plan. Do not read `docs/.skill-metrics/runs.jsonl`.
 
-**Anchor comparison**: compare the recorded `git_commit`/`branch` and current diff with
-reality. If code or dependencies changed since the recorded verification, identify affected
+**Anchor comparison**: run `python3 scripts/resume_check.py <plan>/` first. Each `complate`
+step records its own `commit`; the script reports steps whose commit is missing or not an
+ancestor of HEAD (STALE, exit 1), files changed since the last step commit, and expected vs
+unexpected orphans (see `references/interfaces-and-commits.md`). `checkpoint.json`
+`git_commit`/`branch` remain the coarse anchor; step commits are the finer one. Then compare
+the recorded `git_commit`/`branch` and current diff with reality. If code or dependencies changed since the recorded verification, identify affected
 steps and re-run their checks and review; a saved `complate` is not proof that today's code
 still passes. Re-run `close-ac --run-cmd` for affected ACs (rev freshness).
 
